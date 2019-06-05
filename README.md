@@ -7,7 +7,7 @@ we need to cross compile this as it takes hours to compile on an arm board.
 
 Then `sudo apt-get g++-aarch64-linux-gnu `
 
-git clone  --single-branch -b https://github.com/monkins1010/VerusCoin.git`
+`git clone  --single-branch -b https://github.com/monkins1010/VerusCoin.git`
 
 `cd VerusCoin`
 ` HOST=aarch64-linux-gnu ./zcutil/build.sh STATIC_LIBCURL=1 -j 2`
