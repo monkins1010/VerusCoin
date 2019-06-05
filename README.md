@@ -1,9 +1,9 @@
 # VerusCoin version 0.5.6a with VerusHash 2.0
-# How to test on aarch64 
+# How to test on arm aarch64 
 
 we need to cross compile this as it takes hours to compile on an arm board.
 
-'sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl`
+`sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl`
 
 Then `sudo apt-get g++-aarch64-linux-gnu `
 
