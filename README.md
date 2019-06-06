@@ -4,9 +4,11 @@
 we need to cross compile this as it takes hours to compile on an arm board.
 
 ```shell
-sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl```
+sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl
+```
 
-Then ```shell
+Then 
+```shell
 sudo apt-get install g++-aarch64-linux-gnu ```
 
 ```shell
