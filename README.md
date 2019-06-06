@@ -1,5 +1,5 @@
 ## VerusCoin version 0.5.6a with VerusHash 2.0
-**How to test on arm aarch64** 
+**How to build and test on arm aarch64. e.g. 64-bit Raspberry Pi or a Pine64** 
 
 we need to cross compile this as it takes hours to compile on an arm board.
 
