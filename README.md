@@ -9,17 +9,21 @@ sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoco
 
 Then 
 ```shell
-sudo apt-get install g++-aarch64-linux-gnu ```
+sudo apt-get install g++-aarch64-linux-gnu 
+```
 
 ```shell
-git clone  --single-branch -b arm_monkins https://github.com/monkins1010/VerusCoin.git```
+git clone  --single-branch -b arm_monkins https://github.com/monkins1010/VerusCoin.git
+```
 
 ```shell
-cd VerusCoin```
+cd VerusCoin
+```
 
 Finally:
 ```shell
-HOST=aarch64-linux-gnu ./zcutil/build.sh STATIC_LIBCURL=1 -j 2```
+HOST=aarch64-linux-gnu ./zcutil/build.sh STATIC_LIBCURL=1 -j 2
+```
 
 Then it will build a verus and verusd in your **/VerusCoin/src/** directory
 
