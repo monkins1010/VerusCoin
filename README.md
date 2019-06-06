@@ -1,7 +1,7 @@
 ## VerusCoin version 0.5.6a with VerusHash 2.0
 **How to build and test on arm aarch64. e.g. 64-bit Raspberry Pi or a Pine64** 
 
-we need to cross compile this as it takes hours to compile on an arm board.
+First we need to cross compile this on a decent ish PC as it takes hours to compile on an arm board.
 
 ```shell
 sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl
