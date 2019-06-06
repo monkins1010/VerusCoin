@@ -1,17 +1,23 @@
-# VerusCoin version 0.5.6a with VerusHash 2.0
+## VerusCoin version 0.5.6a with VerusHash 2.0
 **How to test on arm aarch64** 
 
 we need to cross compile this as it takes hours to compile on an arm board.
 
-`sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl`
+```shell
+sudo apt-get install build-essential pkg-config libc6-dev m4 g++-multilib autoconf libtool ncurses-dev unzip git python python-zmq zlib1g-dev wget libcurl4-gnutls-dev bsdmainutils automake curl```
 
-Then `sudo apt-get install g++-aarch64-linux-gnu `
+Then ```shell
+sudo apt-get install g++-aarch64-linux-gnu ```
 
-`git clone  --single-branch -b arm_monkins https://github.com/monkins1010/VerusCoin.git`
+```shell
+git clone  --single-branch -b arm_monkins https://github.com/monkins1010/VerusCoin.git```
 
-`cd VerusCoin`
+```shell
+cd VerusCoin```
+
 Finally:
-` HOST=aarch64-linux-gnu ./zcutil/build.sh STATIC_LIBCURL=1 -j 2`
+```shell
+HOST=aarch64-linux-gnu ./zcutil/build.sh STATIC_LIBCURL=1 -j 2```
 
 Then it will build a verus and verusd in your **/VerusCoin/src/** directory
 
