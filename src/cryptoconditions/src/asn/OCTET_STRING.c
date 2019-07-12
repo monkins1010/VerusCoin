@@ -1737,8 +1737,10 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr, int contents_only) {
 	stck = (struct _stack *)ctx->ptr;
 	if(stck) {
 		while(stck->tail) {
+			 fprintf(stderr,"size of stackel %ul\n",sizeof(struct _stack_el));
 			struct _stack_el *sel = stck->tail;
 			stck->tail = sel->prev;
+			
 			FREEMEM(sel);
 		}
 		FREEMEM(stck);

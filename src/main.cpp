@@ -4733,7 +4733,8 @@ bool CheckBlock(int32_t *futureblockp,int32_t height,CBlockIndex *pindex,const C
 
         //printf("checking block %d\n", height);
         while ( 1 )
-        {
+        {   
+            
             for (i = block.hashPrevBlock.IsNull() ? 1 : 0; i < block.vtx.size(); i++)
             {
                 CValidationState state;
@@ -4742,7 +4743,11 @@ bool CheckBlock(int32_t *futureblockp,int32_t height,CBlockIndex *pindex,const C
                 if (((i == (block.vtx.size() - 1)) && (ASSETCHAINS_STAKED && komodo_isPoS((CBlock *)&block) != 0)))
                     continue;
                 Tx = tx;
-
+                if(height == 531259 )
+                {
+                    printf("checking block %d\n", height);
+                    int a = height;
+                }
                 bool missinginputs = false;
 
                 if (Tx.vout.size() == 0)

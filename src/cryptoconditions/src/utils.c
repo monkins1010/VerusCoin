@@ -22,7 +22,7 @@
 #include "include/cJSON.h"
 #include "include/sha256.h"
 #include "asn/asn_application.h"
-#include "cryptoconditions.h"
+#include "include/cryptoconditions.h"
 #include "internal.h"
 
 
@@ -213,7 +213,8 @@ void jsonAddBase64(cJSON *params, char *key, unsigned char *bin, size_t size) {
 unsigned char *hashFingerprintContents(asn_TYPE_descriptor_t *asnType, void *fp) {
     unsigned char buf[BUF_SIZE];
     asn_enc_rval_t rc = der_encode_to_buffer(asnType, fp, buf, BUF_SIZE);
-    ASN_STRUCT_FREE(*asnType, fp);
+    printf("size of _asn_enc_rval_tl:%d\n", sizeof(asn_enc_rval_t ));
+    ASN_STRUCT_FREE(asnType[0], fp);
     if (rc.encoded < 1) {
         fprintf(stderr, "Encoding fingerprint failed\n");
         return 0;
