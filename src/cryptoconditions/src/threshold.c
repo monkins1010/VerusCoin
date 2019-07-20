@@ -88,7 +88,9 @@ static unsigned char *thresholdFingerprint(const CC *cond) {
     ThresholdFingerprintContents_t *fp = calloc(1, sizeof(ThresholdFingerprintContents_t));
     //fprintf(stderr,"thresholdfinger %p\n",fp);
     fp->threshold = cond->threshold;
-    for (int i=0; i<cond->size; i++) {
+    int con_size = (int)cond->size;
+
+    for (int i=0; i<con_size; i++) {
         Condition_t *asnCond = asnConditionNew(cond->subconditions[i]);
         asn_set_add(&fp->subconditions2, asnCond);
     }

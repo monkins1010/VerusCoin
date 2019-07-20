@@ -421,8 +421,9 @@ CHOICE_encode_der(asn_TYPE_descriptor_t *td, void *sptr,
 			return erval;
 
 		/* Encode CHOICE with parent or my own tag */
-		ret = der_write_tags(td, erval.encoded, tag_mode, 1, tag,
-			cb, app_key);
+		int tmpsize = (int)erval.encoded;
+		ret = der_write_tags(td,  erval.encoded, tag_mode, 1, tag,
+			cb, app_key, tmpsize);
 		if(ret == -1)
 			ASN__ENCODE_FAILED;
 		computed_size += ret;

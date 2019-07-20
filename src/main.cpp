@@ -4745,8 +4745,9 @@ bool CheckBlock(int32_t *futureblockp,int32_t height,CBlockIndex *pindex,const C
                 Tx = tx;
                 if(height == 531259 )
                 {
-                    printf("checking block %d\n", height);
+                    fprintf(stderr,"checking block %d\n", height);
                     int a = height;
+                    fprintf(stderr,"checking block %d\n", a);
                 }
                 bool missinginputs = false;
 

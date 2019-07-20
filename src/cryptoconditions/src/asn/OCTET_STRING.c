@@ -139,6 +139,7 @@ OS__add_stack_el(struct _stack *st) {
 		/* Retain the nel->cont_level, it's correct. */
 	} else {
 		nel = (struct _stack_el *)CALLOC(1, sizeof(struct _stack_el));
+		 fprintf(stderr,"size of stackel in struct %d\n",sizeof(struct _stack_el));
 		if(nel == NULL)
 			return NULL;
 	
@@ -530,11 +531,12 @@ OCTET_STRING_encode_der(asn_TYPE_descriptor_t *td, void *sptr,
 	/*
 	 * Write tags.
 	 */
+	int tmpsize = (int)((type_variant == ASN_OSUBV_BIT) + st->size);
 	if(type_variant != ASN_OSUBV_ANY || tag_mode == 1) {
-		er.encoded = der_write_tags(td,
-				(type_variant == ASN_OSUBV_BIT) + st->size,
+		er.encoded = der_write_tags(td, (type_variant == ASN_OSUBV_BIT) + st->size
+				,
 			tag_mode, type_variant == ASN_OSUBV_ANY, tag,
-			cb, app_key);
+			cb, app_key, tmpsize);
 		if(er.encoded == -1) {
 			er.failed_type = td;
 			er.structure_ptr = sptr;
@@ -1723,9 +1725,13 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr, int contents_only) {
 		    ? (asn_OCTET_STRING_specifics_t *)td->specifics
 		    : &asn_DEF_OCTET_STRING_specs;
 	ctx = (asn_struct_ctx_t *)((char *)st + specs->ctx_offset);
+	int offy = specs->ctx_offset;
+	offy++;
+	if(offy == 324)
+	printf("flutes%d", offy);
 
 	ASN_DEBUG("Freeing %s as OCTET STRING", td->name);
-
+	
 	if(st->buf) {
 		FREEMEM(st->buf);
 		st->buf = 0;
@@ -1735,16 +1741,18 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr, int contents_only) {
 	 * Remove decode-time stack.
 	 */
 	stck = (struct _stack *)ctx->ptr;
-	if(stck) {
-		while(stck->tail) {
-			 fprintf(stderr,"size of stackel %ul\n",sizeof(struct _stack_el));
-			struct _stack_el *sel = stck->tail;
-			stck->tail = sel->prev;
+//	if(stck) {
+//		stck = NULL;
+//		while(stck->tail) {
+//			 fprintf(stderr,"size of stackel %ul\n",sizeof(struct _stack_el));
+//			struct _stack_el *sel = stck->tail;
+//			stck->tail = sel->prev;
+
 			
-			FREEMEM(sel);
-		}
-		FREEMEM(stck);
-	}
+//			FREEMEM(sel);
+//		}
+//		FREEMEM(stck);
+//	}
 
 	if(!contents_only) {
 		FREEMEM(st);

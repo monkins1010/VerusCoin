@@ -10,12 +10,12 @@ libcryptoconditions_la_SOURCES = include/cryptoconditions.h
 libcryptoconditions_la_LIBADD = $(CRYPTOCONDITIONS_CORE) $(LIBSECP256K1)
 
 AM_CFLAGS = -I$(top_srcdir)/src/asn -I$(top_srcdir)/include -I$(top_srcdir)/src/include \
-			-Wall -Wno-pointer-sign -Wno-discarded-qualifiers
+			-Wall -Wno-pointer-sign -Wno-discarded-qualifiers -march=armv8-a -g
 
 LIBSECP256K1=src/include/secp256k1/libsecp256k1.la
 
 $(LIBSECP256K1): $(wildcard src/secp256k1/*)
-	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F) -march:aarch64 -g
+	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
 
 CRYPTOCONDITIONS_CORE=libcryptoconditions_core.la
 

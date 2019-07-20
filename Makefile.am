@@ -180,10 +180,10 @@ baseline_filtered.info: baseline.info
 else
 baseline_filtered.info: baseline.info
 	$(LCOV) -r $< "/usr/include/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/*.h" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/boost/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gmock/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gtest/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/*.h" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/boost/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gmock/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gtest/*" \
 	"$(abs_builddir)/src/gtest/*" \
 	"$(abs_builddir)/src/test/*" \
 	"$(abs_builddir)/src/wallet/gtest/*" \
@@ -209,10 +209,10 @@ leveldb_baseline_filtered.info: leveldb_baseline.info
 else
 leveldb_baseline_filtered.info: leveldb_baseline.info
 	$(LCOV) -r $< "/usr/include/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/*.h" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/boost/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gmock/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gtest/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/*.h" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/boost/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gmock/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gtest/*" \
 	"$(abs_builddir)/src/gtest/*" \
 	"$(abs_builddir)/src/test/*" \
 	"$(abs_builddir)/src/wallet/gtest/*" \
@@ -244,10 +244,10 @@ test_bitcoin_filtered.info: test_bitcoin.info
 else
 test_bitcoin_filtered.info: test_bitcoin.info
 	$(LCOV) -r $< "/usr/include/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/*.h" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/boost/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gmock/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gtest/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/*.h" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/boost/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gmock/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gtest/*" \
 	"$(abs_builddir)/src/gtest/*" \
 	"$(abs_builddir)/src/test/*" \
 	"$(abs_builddir)/src/wallet/gtest/*" \
@@ -278,10 +278,10 @@ block_test_filtered.info: block_test.info
 else
 block_test_filtered.info: block_test.info
 	$(LCOV) -r $< "/usr/include/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/*.h" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/boost/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gmock/*" \
-	"$(abs_builddir)/depends/x86_64-unknown-linux-gnu/include/gtest/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/*.h" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/boost/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gmock/*" \
+	"$(abs_builddir)/depends/aarch64-linux-gnu/include/gtest/*" \
 	"$(abs_builddir)/src/gtest/*" \
 	"$(abs_builddir)/src/test/*" \
 	"$(abs_builddir)/src/wallet/gtest/*" \

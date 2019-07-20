@@ -15,7 +15,7 @@ enum asn_tag_class {
 	ASN_TAG_CLASS_CONTEXT		= 2,	/* 0b10 */
 	ASN_TAG_CLASS_PRIVATE		= 3	/* 0b11 */
 };
-typedef unsigned ber_tlv_tag_t;	/* BER TAG from Tag-Length-Value */
+typedef unsigned int ber_tlv_tag_t;	/* BER TAG from Tag-Length-Value */
 
 /*
  * Tag class is encoded together with tag value for optimization purposes.

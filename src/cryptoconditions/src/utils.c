@@ -214,7 +214,7 @@ unsigned char *hashFingerprintContents(asn_TYPE_descriptor_t *asnType, void *fp)
     unsigned char buf[BUF_SIZE];
     asn_enc_rval_t rc = der_encode_to_buffer(asnType, fp, buf, BUF_SIZE);
     printf("size of _asn_enc_rval_tl:%d\n", sizeof(asn_enc_rval_t ));
-    ASN_STRUCT_FREE(asnType[0], fp);
+    ASN_STRUCT_FREE(*asnType, fp);
     if (rc.encoded < 1) {
         fprintf(stderr, "Encoding fingerprint failed\n");
         return 0;

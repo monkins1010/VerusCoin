@@ -89,9 +89,10 @@ der_encode_primitive(asn_TYPE_descriptor_t *td, void *sptr,
 
 	ASN_DEBUG("%s %s as a primitive type (tm=%d)",
 		cb?"Encoding":"Estimating", td->name, tag_mode);
+	int tmpsize = (int)st->size;
 
 	erval.encoded = der_write_tags(td, st->size, tag_mode, 0, tag,
-		cb, app_key);
+		cb, app_key, tmpsize);
 	ASN_DEBUG("%s wrote tags %d", td->name, (int)erval.encoded);
 	if(erval.encoded == -1) {
 		erval.failed_type = td;

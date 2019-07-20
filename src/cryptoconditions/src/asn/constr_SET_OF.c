@@ -347,8 +347,9 @@ SET_OF_encode_der(asn_TYPE_descriptor_t *td, void *ptr,
 	/*
 	 * Encode the TLV for the sequence itself.
 	 */
+	int tmpsize = (int)computed_size;
 	encoding_size = der_write_tags(td, computed_size, tag_mode, 1, tag,
-		cb, app_key);
+		cb, app_key, tmpsize);
 	if(encoding_size == -1) {
 		erval.encoded = -1;
 		erval.failed_type = td;

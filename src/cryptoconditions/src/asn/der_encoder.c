@@ -79,13 +79,15 @@ der_write_tags(asn_TYPE_descriptor_t *sd,
 		int tag_mode, int last_tag_form,
 		ber_tlv_tag_t tag,	/* EXPLICIT or IMPLICIT tag */
 		asn_app_consume_bytes_f *cb,
-		void *app_key) {
+		void *app_key,
+		int tmpsize) {
 	const ber_tlv_tag_t *tags;	/* Copy of tags stream */
 	int tags_count;			/* Number of tags */
-	size_t overall_length;
+	ssize_t overall_length;
 	ssize_t *lens;
 	int i;
-
+//	printf("size of size_t: %d  size of int: %d\n",struct_length,tmpsize);
+	
 	ASN_DEBUG("Writing tags (%s, tm=%d, tc=%d, tag=%s, mtc=%d)",
 		sd->name, tag_mode, sd->tags_count,
 		ber_tlv_tag_string(tag),

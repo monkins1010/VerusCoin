@@ -550,8 +550,9 @@ SEQUENCE_encode_der(asn_TYPE_descriptor_t *td,
 	/*
 	 * Encode the TLV for the sequence itself.
 	 */
-	ret = der_write_tags(td, computed_size, tag_mode, 1, tag, cb, app_key);
-	ASN_DEBUG("Wrote tags: %ld (+%ld)", (long)ret, (long)computed_size);
+	int tmpsize = (int)computed_size;
+	ret = der_write_tags(td, computed_size, tag_mode, 1, tag, cb, app_key, tmpsize);
+	ASN_DEBUG("Wrote tags: %ld (+%ld)", (long)ret, tmpsize);
 	if(ret == -1)
 		ASN__ENCODE_FAILED;
 	erval.encoded = computed_size + ret;
