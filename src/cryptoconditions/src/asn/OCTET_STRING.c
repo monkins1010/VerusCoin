@@ -1735,6 +1735,7 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr, int contents_only) {
 	 * Remove decode-time stack.
 	 */
 	stck = (struct _stack *)ctx->ptr;
+	#ifndef defined(__aarch64__)   //Pointer to ctx is invalid so stck is accidentally not null, hence the below code frees an invalid pointer
 	if(stck) {
 		while(stck->tail) {
 			struct _stack_el *sel = stck->tail;
@@ -1743,7 +1744,7 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr, int contents_only) {
 		}
 		FREEMEM(stck);
 	}
-
+#endif
 	if(!contents_only) {
 		FREEMEM(st);
 	}
