@@ -178,7 +178,8 @@ UniValue getinfo(const UniValue& params, bool fHelp)
         if ( ASSETCHAINS_REWARD[0] != 0 || ASSETCHAINS_LASTERA > 0 )
         {
             std::string acReward = "", acHalving = "", acDecay = "", acEndSubsidy = "";
-            for (int i = 0; i <= ASSETCHAINS_LASTERA; i++)
+            int lastera = (int)ASSETCHAINS_LASTERA;
+            for (int i = 0; i <= lastera; i++)
             {
                 if (i == 0)
                 {
