@@ -6,6 +6,7 @@ SDK_PATH ?= $(BASEDIR)/SDKs
 NO_WALLET ?=
 NO_UPNP ?=
 FALLBACK_DOWNLOAD_PATH ?= https://supernet/depends-sources
+#PRIORITY_DOWNLOAD_PATH ?= https://download.z.cash/depends-sources
 
 BUILD ?= $(shell ./config.guess)
 HOST ?= $(BUILD)

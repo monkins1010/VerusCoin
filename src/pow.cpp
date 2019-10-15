@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "pow.h"
 #include "consensus/upgrades.h"
@@ -22,9 +22,9 @@
 #endif // ENABLE_RUST
 uint32_t komodo_chainactive_timestamp();
 
-extern uint32_t ASSETCHAINS_ALGO, ASSETCHAINS_EQUIHASH, ASSETCHAINS_STAKED, ASSETCHAINS_LWMAPOS;
+extern uint32_t ASSETCHAINS_ALGO, ASSETCHAINS_EQUIHASH, ASSETCHAINS_VERUSHASH, ASSETCHAINS_STAKED, ASSETCHAINS_LWMAPOS;
 extern char ASSETCHAINS_SYMBOL[65];
-extern int32_t VERUS_BLOCK_POSUNITS, VERUS_CONSECUTIVE_POS_THRESHOLD, VERUS_NOPOS_THRESHHOLD;
+extern int32_t VERUS_BLOCK_POSUNITS, VERUS_CONSECUTIVE_POS_THRESHOLD,VERUS_V2_CONSECUTIVE_POS_THRESHOLD, VERUS_NOPOS_THRESHHOLD;
 unsigned int lwmaGetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params);
 unsigned int lwmaCalculateNextWorkRequired(const CBlockIndex* pindexLast, const Consensus::Params& params);
 
@@ -45,7 +45,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         //    pindexLast->nHeight >= params.nPowAllowMinDifficultyBlocksAfterHeight.get())
         //{
             // Special difficulty rule for testnet:
-            // If the new block's timestamp is more than 6 * 2.5 minutes
+            // If the new block's timestamp is more than 6 * block interval minutes
             // then allow mining of a min-difficulty block.
         //    if (pblock && pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 6)
         //        return nProofOfWorkLimit;
@@ -68,37 +68,47 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
 
     arith_uint256 bnAvg {bnTot / params.nPowAveragingWindow};
 
-    return CalculateNextWorkRequired(bnAvg, pindexLast->GetMedianTimePast(), pindexFirst->GetMedianTimePast(), params);
+    return CalculateNextWorkRequired(bnAvg,
+                                     pindexLast->GetMedianTimePast(), pindexFirst->GetMedianTimePast(),
+                                     params,
+                                     pindexLast->GetHeight() + 1);
 }
 
 unsigned int CalculateNextWorkRequired(arith_uint256 bnAvg,
                                        int64_t nLastBlockTime, int64_t nFirstBlockTime,
-                                       const Consensus::Params& params)
+                                       const Consensus::Params& params,
+                                       int nextHeight)
 {
+    int64_t averagingWindowTimespan = params.AveragingWindowTimespan();
+    int64_t minActualTimespan = params.MinActualTimespan();
+    int64_t maxActualTimespan = params.MaxActualTimespan();
     // Limit adjustment step
     // Use medians to prevent time-warp attacks
     int64_t nActualTimespan = nLastBlockTime - nFirstBlockTime;
     LogPrint("pow", "  nActualTimespan = %d  before dampening\n", nActualTimespan);
-    nActualTimespan = params.AveragingWindowTimespan() + (nActualTimespan - params.AveragingWindowTimespan())/4;
+    nActualTimespan = averagingWindowTimespan + (nActualTimespan - averagingWindowTimespan)/4;
     LogPrint("pow", "  nActualTimespan = %d  before bounds\n", nActualTimespan);
 
-    if (nActualTimespan < params.MinActualTimespan())
-        nActualTimespan = params.MinActualTimespan();
-    if (nActualTimespan > params.MaxActualTimespan())
-        nActualTimespan = params.MaxActualTimespan();
+    if (nActualTimespan < minActualTimespan) {
+        nActualTimespan = minActualTimespan;
+    }
+    if (nActualTimespan > maxActualTimespan) {
+        nActualTimespan = maxActualTimespan;
+    }
 
     // Retarget
     const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
     arith_uint256 bnNew {bnAvg};
-    bnNew /= params.AveragingWindowTimespan();
+    bnNew /= averagingWindowTimespan;
     bnNew *= nActualTimespan;
 
-    if (bnNew > bnPowLimit)
+    if (bnNew > bnPowLimit) {
         bnNew = bnPowLimit;
+    }
 
     /// debug print
     LogPrint("pow", "GetNextWorkRequired RETARGET\n");
-    LogPrint("pow", "params.AveragingWindowTimespan() = %d    nActualTimespan = %d\n", params.AveragingWindowTimespan(), nActualTimespan);
+    LogPrint("pow", "params.AveragingWindowTimespan(%d) = %d    nActualTimespan = %d\n", nextHeight, averagingWindowTimespan, nActualTimespan);
     LogPrint("pow", "Current average: %08x  %s\n", bnAvg.GetCompact(), bnAvg.ToString());
     LogPrint("pow", "After:  %08x  %s\n", bnNew.GetCompact(), bnNew.ToString());
 
@@ -114,16 +124,26 @@ unsigned int lwmaCalculateNextWorkRequired(const CBlockIndex* pindexLast, const 
 {
     arith_uint256 nextTarget {0}, sumTarget {0}, bnTmp, bnLimit;
     if (ASSETCHAINS_ALGO == ASSETCHAINS_EQUIHASH)
+    {
         bnLimit = UintToArith256(params.powLimit);
+    }
     else
+    {
         bnLimit = UintToArith256(params.powAlternate);
-
-    unsigned int nProofOfWorkLimit = bnLimit.GetCompact();
+    }
 
     // Find the first block in the averaging interval as we total the linearly weighted average
     const CBlockIndex* pindexFirst = pindexLast;
     const CBlockIndex* pindexNext;
     int64_t t = 0, solvetime, k = params.nLwmaAjustedWeight, N = params.nPowAveragingWindow;
+
+    // if changing from VerusHash V1 to V2, shift the last blocks by the same shift as the limit
+    int targetShift = 0;
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexLast->GetHeight() + 1))
+    {
+        bnLimit <<= VERUSHASH2_SHIFT;
+        targetShift = VERUSHASH2_SHIFT;
+    }
 
     for (int i = 0, j = N - 1; pindexFirst && i < N; i++, j--) {
         pindexNext = pindexFirst;
@@ -140,12 +160,27 @@ unsigned int lwmaCalculateNextWorkRequired(const CBlockIndex* pindexLast, const 
         // The factor is a part of the final equation. However we divide 
         // here to avoid potential overflow.
         bnTmp.SetCompact(pindexNext->nBits);
+        if (targetShift && !CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexNext->GetHeight()))
+        {
+            bnTmp <<= targetShift;
+        }
         sumTarget += bnTmp / (k * N * N);
     }
 
     // Check we have enough blocks
     if (!pindexFirst)
-        return nProofOfWorkLimit;
+    {
+        if (!_IsVerusActive() && ASSETCHAINS_ALGO == ASSETCHAINS_VERUSHASH)
+        {
+            // startup 16 times harder on PBaaS chains
+            bnLimit = bnLimit >> 4;
+            return bnLimit.GetCompact();
+        }
+        else
+        {
+            return bnLimit.GetCompact();
+        }
+    }
 
     // Keep t reasonable in case strange solvetimes occurred.
     if (t < N * k / 3)
@@ -163,7 +198,7 @@ bool DoesHashQualify(const CBlockIndex *pbindex)
 {
     // if it fails hash test and PoW validation, consider it POS. it could also be invalid
     arith_uint256 hash = UintToArith256(pbindex->GetBlockHash());
-    // to be considered POS, we first can't qualify as POW
+    // to be considered POS in Komodo POS, non VerusPoS, we first can't qualify as POW
     if (hash > hash.SetCompact(pbindex->nBits))
     {
         return false;
@@ -181,6 +216,14 @@ uint32_t lwmaGetNextPOSRequired(const CBlockIndex* pindexLast, const Consensus::
     int64_t t = 0, solvetime = 0;
     int64_t k = params.nLwmaPOSAjustedWeight;
     int64_t N = params.nPOSAveragingWindow;
+
+    int32_t nHeight = pindexLast->GetHeight();
+    int32_t maxConsecutivePos = VERUS_CONSECUTIVE_POS_THRESHOLD;
+
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight + 1) >= CActivationHeight::SOLUTION_VERUSV3)
+    {
+        maxConsecutivePos = VERUS_V2_CONSECUTIVE_POS_THRESHOLD;
+    }
 
     struct solveSequence {
         int64_t solveTime;
@@ -244,7 +287,7 @@ uint32_t lwmaGetNextPOSRequired(const CBlockIndex* pindexLast, const Consensus::
         if (x)
         {
             idx[i].consecutive = false;
-            if (!memcmp(ASSETCHAINS_SYMBOL, "VRSC", 4) && pindexLast->GetHeight() < 67680)
+            if (!memcmp(ASSETCHAINS_SYMBOL, "VRSC", 4) && nHeight < 67680)
             {
                 idx[i].solveTime = VERUS_BLOCK_POSUNITS * (x + 1);
             }
@@ -313,7 +356,7 @@ uint32_t lwmaGetNextPOSRequired(const CBlockIndex* pindexLast, const Consensus::
     return nextTarget.GetCompact();
 }
 
-bool CheckEquihashSolution(const CBlockHeader *pblock, const CChainParams& params)
+bool CheckEquihashSolution(const CBlockHeader *pblock, const Consensus::Params& params)
 {
     if (ASSETCHAINS_ALGO != ASSETCHAINS_EQUIHASH)
         return true;
@@ -415,7 +458,26 @@ bool CheckProofOfWork(const CBlockHeader &blkHeader, uint8_t *pubkey33, int32_t 
             }
         }
     }
-    arith_uint256 bnLimit = (height <= 1 || ASSETCHAINS_ALGO == ASSETCHAINS_EQUIHASH) ? UintToArith256(params.powLimit) : UintToArith256(params.powAlternate);
+
+    arith_uint256 bnLimit;
+    if (height <= 1 || ASSETCHAINS_ALGO == ASSETCHAINS_EQUIHASH)
+    {
+        bnLimit = UintToArith256(params.powLimit);
+    }
+    else if (ASSETCHAINS_ALGO == ASSETCHAINS_VERUSHASH)
+    {
+        int32_t verusVersion = CConstVerusSolutionVector::activationHeight.ActiveVersion(height);
+        if (verusVersion >= CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV2)
+        {
+            int32_t pbaasAdjust = !_IsVerusActive() && height < params.nPOSAveragingWindow ? 4 : 0;
+            bnLimit = UintToArith256(params.powAlternate) << (VERUSHASH2_SHIFT - pbaasAdjust);
+        }
+        else
+        {
+            bnLimit = UintToArith256(params.powAlternate);
+        }
+    }
+
     if (fNegative || bnTarget == 0 || fOverflow || bnTarget > bnLimit)
         return error("CheckProofOfWork(): nBits below minimum work");
     if ( ASSETCHAINS_STAKED != 0 )
@@ -423,6 +485,7 @@ bool CheckProofOfWork(const CBlockHeader &blkHeader, uint8_t *pubkey33, int32_t 
         arith_uint256 bnMaxPoSdiff;
         bnTarget.SetCompact(KOMODO_MINDIFF_NBITS,&fNegative,&fOverflow);
     }
+
     // Check proof of work matches claimed amount
     if ( UintToArith256(hash = blkHeader.GetHash()) > bnTarget && !blkHeader.IsVerusPOSBlock() )
     {
@@ -473,7 +536,7 @@ CChainPower GetBlockProof(const CBlockIndex& block)
     CBlockHeader header = block.GetBlockHeader();
 
     // if POS block, add stake
-    if (!NetworkUpgradeActive(block.GetHeight(), Params().GetConsensus(), Consensus::UPGRADE_SAPLING) || !header.IsVerusPOSBlock())
+    if (!Params().GetConsensus().NetworkUpgradeActive(block.GetHeight(), Consensus::UPGRADE_SAPLING) || !header.IsVerusPOSBlock())
     {
         return CChainPower(0, bnStakeTarget, (~bnWorkTarget / (bnWorkTarget + 1)) + 1);
     }

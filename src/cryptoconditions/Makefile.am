@@ -24,6 +24,11 @@ libcryptoconditions_core_la_SOURCES = \
 	src/utils.c \
 	src/include/cJSON.c \
 	src/include/sha256.c \
+	src/include/byte_order.c \
+	src/include/byte_order.h \
+	src/include/ripemd-160.c \
+	src/include/ripemd-160.h \
+	src/include/ustd.h \
 	src/include/ed25519/src/keypair.c \
 	src/include/ed25519/src/seed.c \
 	src/include/ed25519/src/verify.c \

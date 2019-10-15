@@ -121,7 +121,7 @@ static cJSON *jsonVerifyFulfillment(cJSON *params, char *err) {
         goto END;
     }
 
-    int valid = cc_verify(cond, msg, msg_len, 1, cond_bin, cond_bin_len, &jsonVerifyEval, NULL);
+    int valid = cc_verify(cond, msg, msg_len, 1, cond_bin, cond_bin_len, &jsonVerifyEval, NULL, 1);
     cc_free(cond);
     out = cJSON_CreateObject();
     cJSON_AddItemToObject(out, "valid", cJSON_CreateBool(valid));

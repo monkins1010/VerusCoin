@@ -891,7 +891,7 @@ void OS_randombytes(unsigned char *x,long xlen);
 bits256 rand256(int32_t privkeyflag)
 {
     bits256 randval;
-    #ifndef __WIN32
+    #ifndef _WIN32
     OS_randombytes(randval.bytes,sizeof(randval));
     #else
     randombytes_buf(randval.bytes,sizeof(randval));

@@ -73,12 +73,13 @@ typedef struct CCVisitor {
 int             cc_isFulfilled(const CC *cond);
 int             cc_verify(const struct CC *cond, const uint8_t *msg, size_t msgLength,
                         int doHashMessage, const uint8_t *condBin, size_t condBinLength,
-                        VerifyEval verifyEval, void *evalContext);
+                        VerifyEval verifyEval, void *evalContext, int checkSig);
 int             cc_visit(CC *cond, struct CCVisitor visitor);
 int             cc_signTreeEd25519(CC *cond, const uint8_t *privateKey, const uint8_t *msg,
                         const size_t msgLength);
 int             cc_signTreeSecp256k1Msg32(CC *cond, const uint8_t *privateKey, const uint8_t *msg32);
 int             cc_secp256k1VerifyTreeMsg32(const CC *cond, const uint8_t *msg32);
+int             cc_secp256k1VerifyTreeMsg32_PartialCheck(const CC *cond, const unsigned char *msg32);
 size_t          cc_conditionBinary(const CC *cond, uint8_t *buf);
 size_t          cc_fulfillmentBinary(const CC *cond, uint8_t *buf, size_t bufLength);
 struct CC*      cc_conditionFromJSON(cJSON *params, char *err);

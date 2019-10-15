@@ -31,6 +31,9 @@
 #include "CCPayments.h"
 #include "CCGateways.h"
 #include "StakeGuard.h"
+#include "pbaas/crosschainrpc.h"
+#include "pbaas/pbaas.h"
+#include "pbaas/notarization.h"
 
 /*
  CCcustom has most of the functions that need to be extended to create a new CC contract.
@@ -60,6 +63,81 @@
 std::string StakeGuardAddr = "RCG8KwJNDVwpUBcdoa6AoHqHVJsA1uMYMR";
 std::string StakeGuardPubKey = "03166b7813a4855a88e9ef7340a692ef3c2decedfdc2c7563ec79537e89667d935";
 std::string StakeGuardWIF = "Uw7vRYHGKjyi1FaJ8Lv1USSuj7ntUti8fAhSDiCdbzuV6yDagaTn";
+
+// defines the blockchain parameters of a PBaaS blockchain
+std::string PBaaSDefinitionAddr = "RP7id3CzCnwvzNUZesYJM6ekvsxpEzMqB1";
+std::string PBaaSDefinitionPubKey = "02a0de91740d3d5a3a4a7990ae22315133d02f33716b339ebce88662d012224ef5";
+std::string PBaaSDefinitionWIF = "UwhNWARAQTUvYUEqxGbRjM2BFUneGnFzmaMMiSqJQZFQZTku6xTW";
+
+// Service reward output type
+std::string ServiceRewardAddr = "RQWMeecjGFF3ZAVeSimRbyG9iMDUHPY5Ny";
+std::string ServiceRewardPubKey = "03e1894e9d487125be5a8c6657a8ce01bc81ba7816d698dbfcfb0483754eb5a2d9";
+std::string ServiceRewardWIF = "Uw5dNvvgz7eyUJGtfi696hYbF9YPXHPHasgZFeQeDu8j4SapPBzd";
+
+// Earned notarization type, created by PBaaS chain miners, not on the Verus chain
+std::string EarnedNotarizationAddr = "RMYbaxFsCT1xfMmwLCCYAVf2DsxcDTtBmx";
+std::string EarnedNotarizationPubKey = "03fb008879b37d644bef929576dda7f5ee31b352c76fc112b4a89838d5b61f52e2";
+std::string EarnedNotarizationWIF = "UtzhFWXw24xS2Tf3gCDm9p2Ex7TUnCNt4DFA7r2f5cCKPhPknEqD";
+
+// Accepted notarizations are validated notarizations and proofs of an alternate earned notarization -- these are for the Verus chain
+std::string AcceptedNotarizationAddr = "RDTq9qn1Lthv7fvsdbWz36mGp8HK9XaruZ";
+std::string AcceptedNotarizationPubKey = "02d85f078815b7a52faa92639c3691d2a640e26c4e06de54dd1490f0e93bcc11c3";
+std::string AcceptedNotarizationWIF = "UtgbVEYs2PShTMffbkYh8bgo9DYsXr8JuqWVjAYHRt2ebGPeP5Mf";
+
+// "Finalization" - output that can be spent when a notarization is effectively considered "final"
+std::string FinalizeNotarizationAddr = "RRbKYitLH9EhQCvCo4bPZqJx3TWxASadxE";
+std::string FinalizeNotarizationPubKey = "02e3154f8122ff442fbca3ff8ff4d4fb2d9285fd9f4d841d58fb8d6b7acefed60f";
+std::string FinalizeNotarizationWIF = "UrN1b1hCQc6cUpcUdQD7DFTn2PJneDpKv5pmURPQzJ2zVp9UVM6E";
+
+// Reserve output -- provides flexible Verus reserve currency transaction/utxo support on PBaaS chains only
+std::string ReserveOutputAddr = "RMXeZGxxRuABFkT4uLSCeuJHLegBNGZq8D";
+std::string ReserveOutputPubKey = "02d3e0f4c308c6e9786a5280ec96ea6d0e07505bae88d28b4b3156c309e2ae5515";
+std::string ReserveOutputWIF = "UrCfRxuFKPg3b3HtPFhvL9X8iePfETRZpgymrxzdDZ3vpjSwHrxH";
+
+// Reserve exchange -- convert from a fractional reserve into its underlying currency, PBaaS reserve chains only
+std::string ReserveExchangeAddr = "REuGNkgunnw1J4Zx6Y9UCp8YHVZqYATe9D";
+std::string ReserveExchangePubKey = "02b68492c495d7d63d908fa641fb6215bc56a7de15fb438c78066ec4c173563527";
+std::string ReserveExchangeWIF = "Uveq2qCQLjaJxdjXBAtBQQjhRDocomeSCtogifMHxwVsLNRCQgqX";
+
+// Reserve transfer -- send reserves from a Verus chain to a PBaaS chain or back with optional conversion, works on Verus or PBaaS chains
+std::string ReserveTransferAddr = "RTqQe58LSj2yr5CrwYFwcsAQ1edQwmrkUU";
+std::string ReserveTransferPubKey = "0367add5577ca8f5f680ee0adf4cf802584c56ed14956efedd3e18656874614548";
+std::string ReserveTransferWIF = "UtbtjjXtNtYroASwDrW63pEK7Fv3ehBRGDc2GRkPPr292DkRTmtB";
+
+// Reserve deposit -- these outputs are spent into the cross chain import thread on the Verus chain when import transactions are created
+std::string ReserveDepositAddr = "RFw9AVfgNKcHe2Vp2eyzHrX65aFD9Ky8df";
+std::string ReserveDepositPubKey = "03b99d7cb946c5b1f8a54cde49b8d7e0a2a15a22639feb798009f82b519526c050";
+std::string ReserveDepositWIF = "UtGtjeGBCUtQPGZp99bnDvQuxvURxdjGRFHuJ7oQyQgpNNCEyyqu";
+
+// Cross chain export -- this is used on an aggregated cross chain export transaction and one unspent output defines the export thread
+std::string CrossChainExportAddr = "RGkrs7SndcpsV61oKK2jYdMiU8PgkLU2qP";
+std::string CrossChainExportPubKey = "02cbfe54fb371cfc89d35b46cafcad6ac3b7dc9b40546b0f30b2b29a4865ed3b4a";
+std::string CrossChainExportWIF = "Uu9P8fa68e2ECar76z4MsSoKtbRV1Dny3WD6DTmMKmeimooeAyAz";
+
+// Cross chain import -- this is used on a cross chain import transaction and one unspent output defines the import thread
+std::string CrossChainImportAddr = "RKLN7wFhbrJFkPG8XkKteErAe5CjqoddTm";
+std::string CrossChainImportPubKey = "038d259ec6175e192f8417914293dd09203885bc33039080f2a33f08a3fdddc818";
+std::string CrossChainImportWIF = "UtAEFiEERMkuZ3cCzbi8DqXRM6fHNAuYcbXU2hy2dc14LgPpkxax";
+
+// Currency state - coinbase output -- currently required on PBaaS chains only
+std::string CurrencyStateAddr = "REU1HKkmdwdxKMpfD3QoxeERYd9tfMN6n9";
+std::string CurrencyStatePubKey = "0219af977f9a6c3779f1185decee2b77da446040055b912b00e115a52d4786059c";
+std::string CurrencyStateWIF = "Ur8YQJQ6guqmD6rXtrUtJ7fWxaEB5FaejCr3MxHAgMEwnjJnuGo5";
+
+// indentity primary output
+std::string IdentityPrimaryAddr = "";
+std::string IdentityPrimaryPubKey = "";
+std::string IdentityPrimaryWIF = "";
+
+// indentity revoke output
+std::string IdentityRevokeAddr = "";
+std::string IdentityRevokePubKey = "";
+std::string IdentityRevokeWIF = "";
+
+// indentity recover output
+std::string IdentityRecoverAddr = "";
+std::string IdentityRecoverPubKey = "";
+std::string IdentityRecoverWIF = "";
 
 // Assets, aka Tokens
 #define FUNCNAME IsAssetsInput
@@ -239,7 +317,142 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             strcpy(cp->CChexstr,StakeGuardPubKey.c_str());
             memcpy(cp->CCpriv,DecodeSecret(StakeGuardWIF).begin(),32);
             cp->validate = StakeGuardValidate;
-            cp->ismyvin = IsStakeGuardInput;
+            cp->ismyvin = IsStakeGuardInput;  // TODO: these input functions are not correct and should be as above with FUNCNAME/EVALCODE
+            break;
+
+        case EVAL_PBAASDEFINITION:
+            strcpy(cp->unspendableCCaddr,PBaaSDefinitionAddr.c_str());
+            strcpy(cp->normaladdr,PBaaSDefinitionAddr.c_str());
+            strcpy(cp->CChexstr,PBaaSDefinitionPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(PBaaSDefinitionWIF).begin(),32);
+            cp->validate = ValidateChainDefinition;
+            cp->ismyvin = IsChainDefinitionInput;
+            break;
+
+        case EVAL_EARNEDNOTARIZATION:
+            strcpy(cp->unspendableCCaddr,EarnedNotarizationAddr.c_str());
+            strcpy(cp->normaladdr,EarnedNotarizationAddr.c_str());
+            strcpy(cp->CChexstr,EarnedNotarizationPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(EarnedNotarizationWIF).begin(),32);
+            cp->validate = ValidateEarnedNotarization;
+            cp->ismyvin = IsEarnedNotarizationInput;
+            break;
+
+        case EVAL_ACCEPTEDNOTARIZATION:
+            strcpy(cp->unspendableCCaddr,AcceptedNotarizationAddr.c_str());
+            strcpy(cp->normaladdr,AcceptedNotarizationAddr.c_str());
+            strcpy(cp->CChexstr,AcceptedNotarizationPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(AcceptedNotarizationWIF).begin(),32);
+            cp->validate = ValidateAcceptedNotarization;
+            cp->ismyvin = IsAcceptedNotarizationInput;
+            break;
+
+        case EVAL_FINALIZENOTARIZATION:
+            strcpy(cp->unspendableCCaddr,FinalizeNotarizationAddr.c_str());
+            strcpy(cp->normaladdr,FinalizeNotarizationAddr.c_str());
+            strcpy(cp->CChexstr,FinalizeNotarizationPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(FinalizeNotarizationWIF).begin(),32);
+            cp->validate = ValidateFinalizeNotarization;
+            cp->ismyvin = IsFinalizeNotarizationInput;
+            break;
+
+        case EVAL_SERVICEREWARD:
+            strcpy(cp->unspendableCCaddr,ServiceRewardAddr.c_str());
+            strcpy(cp->normaladdr,ServiceRewardAddr.c_str());
+            strcpy(cp->CChexstr,ServiceRewardPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(ServiceRewardWIF).begin(),32);
+            cp->validate = ValidateServiceReward;
+            cp->ismyvin = IsServiceRewardInput;
+            break;
+
+        case EVAL_RESERVE_OUTPUT:
+            strcpy(cp->unspendableCCaddr, ReserveOutputAddr.c_str());
+            strcpy(cp->normaladdr, ReserveOutputAddr.c_str());
+            strcpy(cp->CChexstr, ReserveOutputPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(ReserveOutputWIF).begin(),32);
+            cp->validate = ValidateReserveOutput;
+            cp->ismyvin = IsReserveOutputInput;
+            break;
+
+        case EVAL_RESERVE_EXCHANGE:
+            strcpy(cp->unspendableCCaddr, ReserveExchangeAddr.c_str());
+            strcpy(cp->normaladdr, ReserveExchangeAddr.c_str());
+            strcpy(cp->CChexstr, ReserveExchangePubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(ReserveExchangeWIF).begin(),32);
+            cp->validate = ValidateReserveExchange;
+            cp->ismyvin = IsReserveExchangeInput;
+            break;
+
+        case EVAL_RESERVE_TRANSFER:
+            strcpy(cp->unspendableCCaddr, ReserveTransferAddr.c_str());
+            strcpy(cp->normaladdr, ReserveTransferAddr.c_str());
+            strcpy(cp->CChexstr, ReserveTransferPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(ReserveTransferWIF).begin(),32);
+            cp->validate = ValidateReserveTransfer;
+            cp->ismyvin = IsReserveTransferInput;
+            break;
+
+        case EVAL_RESERVE_DEPOSIT:
+            strcpy(cp->unspendableCCaddr, ReserveDepositAddr.c_str());
+            strcpy(cp->normaladdr, ReserveDepositAddr.c_str());
+            strcpy(cp->CChexstr, ReserveDepositPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(ReserveDepositWIF).begin(),32);
+            cp->validate = ValidateReserveDeposit;
+            cp->ismyvin = IsReserveDepositInput;
+            break;
+
+        case EVAL_CROSSCHAIN_IMPORT:
+            strcpy(cp->unspendableCCaddr, CrossChainImportAddr.c_str());
+            strcpy(cp->normaladdr, CrossChainImportAddr.c_str());
+            strcpy(cp->CChexstr, CrossChainImportPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(CrossChainImportWIF).begin(),32);
+            cp->validate = ValidateCrossChainImport;
+            cp->ismyvin = IsCrossChainImportInput;
+            break;
+
+        case EVAL_CROSSCHAIN_EXPORT:
+            strcpy(cp->unspendableCCaddr, CrossChainExportAddr.c_str());
+            strcpy(cp->normaladdr, CrossChainExportAddr.c_str());
+            strcpy(cp->CChexstr, CrossChainExportPubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(CrossChainExportWIF).begin(),32);
+            cp->validate = ValidateCrossChainExport;
+            cp->ismyvin = IsCrossChainExportInput;
+            break;
+
+        case EVAL_CURRENCYSTATE:
+            strcpy(cp->unspendableCCaddr,CurrencyStateAddr.c_str());
+            strcpy(cp->normaladdr,CurrencyStateAddr.c_str());
+            strcpy(cp->CChexstr, CurrencyStatePubKey.c_str());
+            memcpy(cp->CCpriv,DecodeSecret(CurrencyStateWIF).begin(),32);
+            cp->validate = ValidateCurrencyState;
+            cp->ismyvin = IsCurrencyStateInput;
+            break;
+
+        case EVAL_IDENTITY_PRIMARY:
+            strcpy(cp->unspendableCCaddr, IdentityPrimaryAddr.c_str());
+            strcpy(cp->normaladdr, IdentityPrimaryAddr.c_str());
+            strcpy(cp->CChexstr, IdentityPrimaryPubKey.c_str());
+            memcpy(cp->CCpriv, DecodeSecret(IdentityPrimaryWIF).begin(),32);
+            cp->validate = ValidateIdentityPrimary;
+            cp->ismyvin = IsIdentityInput;
+            break;
+
+        case EVAL_IDENTITY_REVOKE:
+            strcpy(cp->unspendableCCaddr, IdentityRevokeAddr.c_str());
+            strcpy(cp->normaladdr, IdentityRevokeAddr.c_str());
+            strcpy(cp->CChexstr, IdentityRevokePubKey.c_str());
+            memcpy(cp->CCpriv, DecodeSecret(IdentityRevokeWIF).begin(),32);
+            cp->validate = ValidateIdentityRevoke;
+            cp->ismyvin = IsIdentityInput;
+            break;
+
+        case EVAL_IDENTITY_RECOVER:
+            strcpy(cp->unspendableCCaddr, IdentityRecoverAddr.c_str());
+            strcpy(cp->normaladdr, IdentityRecoverAddr.c_str());
+            strcpy(cp->CChexstr, IdentityRecoverPubKey.c_str());
+            memcpy(cp->CCpriv, DecodeSecret(IdentityRecoverWIF).begin(),32);
+            cp->validate = ValidateIdentityRecover;
+            cp->ismyvin = IsIdentityInput;
             break;
 
         case EVAL_ASSETS:
@@ -365,4 +578,3 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
     }
     return(cp);
 }
-

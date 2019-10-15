@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2013 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "clientversion.h"
 #include "rpc/server.h"
@@ -12,6 +12,7 @@
 #include "util.h"
 #include "httpserver.h"
 #include "httprpc.h"
+#include "version.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem.hpp>
@@ -99,8 +100,7 @@ bool AppInit(int argc, char* argv[])
     // Process help and version before taking care about datadir
     if (mapArgs.count("-?") || mapArgs.count("-h") ||  mapArgs.count("-help") || mapArgs.count("-version"))
     {
-        std::string strUsage = _("Komodo Daemon") + " " + _("version") + " " + FormatFullVersion() + "\n" + PrivacyInfo();
-
+        std::string strUsage = _("Verus Daemon") + " " + _("version") + " " + _(VERUS_VERSION) + "\n" + PrivacyInfo();
         if (mapArgs.count("-version"))
         {
             strUsage += LicenseInfo();
@@ -108,7 +108,7 @@ bool AppInit(int argc, char* argv[])
         else
         {
             strUsage += "\n" + _("Usage:") + "\n" +
-                  "  komodod [options]                     " + _("Start Komodo Daemon") + "\n";
+                  "  verusd [options]                     " + _("Start Verus Daemon") + "\n";
 
             strUsage += "\n" + HelpMessage(HMM_BITCOIND);
         }
@@ -119,6 +119,9 @@ bool AppInit(int argc, char* argv[])
 
     try
     {
+        if (!AppInitNetworking())
+            return false;
+
         void komodo_args(char *argv0);
         komodo_args(argv[0]);
         fprintf(stderr,"call komodo_args.(%s) NOTARY_PUBKEY.(%s)\n",argv[0],NOTARY_PUBKEY.c_str());
@@ -172,12 +175,12 @@ bool AppInit(int argc, char* argv[])
         // Command-line RPC
         bool fCommandLine = false;
         for (int i = 1; i < argc; i++)
-            if (!IsSwitchChar(argv[i][0]) && !boost::algorithm::istarts_with(argv[i], "komodo:"))
+            if (!IsSwitchChar(argv[i][0]) && !boost::algorithm::istarts_with(argv[i], "verus:"))
                 fCommandLine = true;
 
         if (fCommandLine)
         {
-            fprintf(stderr, "Error: There is no RPC client functionality in komodod. Use the komodo-cli utility instead.\n");
+            fprintf(stderr, "Error: There is no RPC client functionality in verusd. Use the verus utility instead.\n");
             exit(EXIT_FAILURE);
         }
 
@@ -185,7 +188,7 @@ bool AppInit(int argc, char* argv[])
         fDaemon = GetBoolArg("-daemon", false);
         if (fDaemon)
         {
-            fprintf(stdout, "Komodo %s server starting\n",ASSETCHAINS_SYMBOL);
+            fprintf(stdout, "verus %s server starting\n",ASSETCHAINS_SYMBOL);
 
             // Daemonize
             pid_t pid = fork();

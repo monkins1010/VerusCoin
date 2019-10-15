@@ -22,11 +22,15 @@ const int CCEnabledTypes = 1 << CC_Secp256k1 | \
 
 const int CCSigningNodes = 1 << CC_Ed25519 | 1 << CC_Secp256k1;
 
+const int CCEvalNode = 1 << CC_Eval;
+
+const int CCFirstEvalOnly = 2;
+const int CCLastEvalOnly = 0x0d;
 
 /*
  * Check if the server can accept the condition based on it's structure / types
  */
-bool IsSupportedCryptoCondition(const CC *cond);
+bool IsSupportedCryptoCondition(const CC *cond, int evalCode);
 
 
 /*
@@ -41,6 +45,7 @@ bool IsSignedCryptoCondition(const CC *cond);
 CC* CCNewPreimage(std::vector<unsigned char> preimage);
 CC* CCNewEval(std::vector<unsigned char> code);
 CC* CCNewSecp256k1(CPubKey k);
+CC* CCNewHashedSecp256k1(CKeyID keyID);
 CC* CCNewThreshold(int t, std::vector<CC*> v);
 
 

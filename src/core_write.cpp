@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "core_io.h"
 
@@ -117,6 +117,13 @@ string ScriptToAsmStr(const CScript& script, const bool fAttemptSighashDecode)
 }
 
 string EncodeHexTx(const CTransaction& tx)
+{
+    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
+    ssTx << tx;
+    return HexStr(ssTx.begin(), ssTx.end());
+}
+
+string EncodeHexBlk(const CBlock& tx)
 {
     CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
     ssTx << tx;

@@ -1,6 +1,8 @@
+# Verus Specific Extensions - TBD Here
+
 # Zcash Payment API
 
-## Overview
+This document has been relocated to https://zcash.readthedocs.io/en/latest/rtd_pages/payment_api.html
 
 Zcash extends the Bitcoin Core API with new RPC calls to support private Zcash payments.
 

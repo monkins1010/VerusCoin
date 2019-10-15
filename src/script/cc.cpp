@@ -7,19 +7,18 @@ bool IsCryptoConditionsEnabled()
     return 0 != ASSETCHAINS_CC;
 }
 
-
-bool IsSupportedCryptoCondition(const CC *cond)
+bool IsSupportedCryptoCondition(const CC *cond, int evalCode)
 {
     int mask = cc_typeMask(cond);
 
     if (mask & ~CCEnabledTypes) return false;
 
-    // Also require that the condition have at least one signable node
-    if (!(mask & CCSigningNodes)) return false;
+    // Also require that the condition have at least one signable node or be a PBaaS compatible condition
+    // and at least have an eval node instead
+    if (!(mask & CCSigningNodes) && !(evalCode >= CCFirstEvalOnly && evalCode <= CCLastEvalOnly && mask & CCEvalNode)) return false;
 
     return true;
 }
-
 
 bool IsSignedCryptoCondition(const CC *cond)
 {
@@ -39,6 +38,13 @@ static unsigned char* CopyPubKey(CPubKey pkIn)
     return pk;
 }
 
+static unsigned char* CopyKeyIDChars(uint8_t *chars)
+{
+    unsigned char* pk = (unsigned char*) malloc(33);
+    memcpy(pk, chars, 20);  // only the keyID
+    memset(pk + 20, 0, 13);
+    return pk;
+}
 
 CC* CCNewThreshold(int t, std::vector<CC*> v)
 {
@@ -50,7 +56,6 @@ CC* CCNewThreshold(int t, std::vector<CC*> v)
     return cond;
 }
 
-
 CC* CCNewSecp256k1(CPubKey k)
 {
     CC *cond = cc_new(CC_Secp256k1);
@@ -58,6 +63,13 @@ CC* CCNewSecp256k1(CPubKey k)
     return cond;
 }
 
+CC* CCNewHashedSecp256k1(CKeyID keyID)
+{
+    CC *cond = cc_new(CC_Secp256k1);
+
+    cond->publicKey = CopyKeyIDChars(keyID.begin());
+    return cond;
+}
 
 CC* CCNewEval(std::vector<unsigned char> code)
 {

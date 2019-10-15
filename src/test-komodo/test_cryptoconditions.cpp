@@ -56,7 +56,7 @@ TEST_F(CCTest, testMayAcceptCryptoCondition)
           { "type": "secp256k1-sha-256", "publicKey": "0205a8ad0c1dbc515f149af377981aab58b836af008d4d7ab21bd76faf80550b47" }
       ]
     })!!");
-    ASSERT_TRUE(CCPubKey(cond).MayAcceptCryptoCondition());
+    ASSERT_TRUE(CCPubKey(cond).MayAcceptCryptoCondition(0));
 
 
     // prefix not allowed
@@ -67,7 +67,7 @@ TEST_F(CCTest, testMayAcceptCryptoCondition)
       "subfulfillment":
           { "type": "secp256k1-sha-256", "publicKey": "0205a8ad0c1dbc515f149af377981aab58b836af008d4d7ab21bd76faf80550b47" }
       })!!");
-    ASSERT_FALSE(CCPubKey(cond).MayAcceptCryptoCondition());
+    ASSERT_FALSE(CCPubKey(cond).MayAcceptCryptoCondition(0));
 
 
     // has no signature nodes
@@ -79,7 +79,7 @@ TEST_F(CCTest, testMayAcceptCryptoCondition)
           { "type": "eval-sha-256", "code": "" }
       ]
     })!!");
-    ASSERT_FALSE(CCPubKey(cond).MayAcceptCryptoCondition());
+    ASSERT_FALSE(CCPubKey(cond).MayAcceptCryptoCondition(0));
 }
 
 

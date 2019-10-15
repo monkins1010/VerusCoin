@@ -27,10 +27,10 @@ uint32_t CCheatList::Prune(uint32_t height)
     pair<multimap<const uint32_t, CTxHolder>::iterator, multimap<const uint32_t, CTxHolder>::iterator> range;
     vector<CTxHolder *> toPrune;
 
-    if (height > 0 && NetworkUpgradeActive(height, Params().GetConsensus(), Consensus::UPGRADE_SAPLING))
+    if (height > 0 && Params().GetConsensus().NetworkUpgradeActive(height, Consensus::UPGRADE_SAPLING))
     {
         LOCK(cs_cheat);
-        for (auto it = orderedCheatCandidates.begin(); it != orderedCheatCandidates.end() && it->second.height <= height; it--)
+        for (auto it = orderedCheatCandidates.begin(); it != orderedCheatCandidates.end() && it->second.height <= height; it++)
         {
             toPrune.push_back(&it->second);
         }
@@ -128,7 +128,7 @@ bool CCheatList::IsUTXOInList(COutPoint _utxo, uint32_t height)
 
 bool CCheatList::Add(const CTxHolder &txh)
 {
-    if (NetworkUpgradeActive(txh.height, Params().GetConsensus(), Consensus::UPGRADE_SAPLING))
+    if (Params().GetConsensus().NetworkUpgradeActive(txh.height, Consensus::UPGRADE_SAPLING))
     {
         LOCK(cs_cheat);
         auto it = orderedCheatCandidates.insert(pair<const uint32_t, CTxHolder>(txh.height, txh));

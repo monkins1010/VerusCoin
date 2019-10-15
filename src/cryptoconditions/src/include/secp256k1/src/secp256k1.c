@@ -307,6 +307,19 @@ int secp256k1_ecdsa_verify(const secp256k1_context* ctx, const secp256k1_ecdsa_s
             secp256k1_ecdsa_sig_verify(&ctx->ecmult_ctx, &r, &s, &q, &m));
 }
 
+int secp256k1_ecdsa_verify_validonly(const secp256k1_context* ctx, const secp256k1_ecdsa_signature *sig, const unsigned char *msg32) {
+    secp256k1_scalar r, s;
+    secp256k1_scalar m;
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(secp256k1_ecmult_context_is_built(&ctx->ecmult_ctx));
+    ARG_CHECK(msg32 != NULL);
+    ARG_CHECK(sig != NULL);
+
+    secp256k1_scalar_set_b32(&m, msg32, NULL);
+    secp256k1_ecdsa_signature_load(ctx, &r, &s, sig);
+    return (!secp256k1_scalar_is_high(&s));
+}
+
 static int nonce_function_rfc6979(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
    unsigned char keydata[112];
    int keylen = 64;

@@ -1,7 +1,7 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "clientversion.h"
 #include "init.h"
@@ -13,6 +13,8 @@
 #include "timedata.h"
 #include "txmempool.h"
 #include "util.h"
+#include "../version.h"
+#include "pbaas/crosschainrpc.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h"
@@ -25,6 +27,7 @@
 #include <univalue.h>
 
 #include "zcash/Address.hpp"
+#include "pbaas/pbaas.h"
 
 using namespace std;
 
@@ -55,14 +58,14 @@ extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
 uint32_t komodo_segid32(char *coinaddr);
 int64_t komodo_coinsupply(int64_t *zfundsp,int32_t height);
 int32_t notarizedtxid_height(char *dest,char *txidstr,int32_t *kmdnotarized_heightp);
-#define KOMODO_VERSION "0.2.1"
-#define VERUS_VERSION "0.4.0c"
+
 extern uint16_t ASSETCHAINS_P2PPORT,ASSETCHAINS_RPCPORT;
 extern uint32_t ASSETCHAINS_CC;
 extern uint32_t ASSETCHAINS_MAGIC;
 extern uint64_t ASSETCHAINS_COMMISSION,ASSETCHAINS_STAKED,ASSETCHAINS_SUPPLY,ASSETCHAINS_LASTERA;
 extern int32_t ASSETCHAINS_LWMAPOS;
 extern uint64_t ASSETCHAINS_ENDSUBSIDY[],ASSETCHAINS_REWARD[],ASSETCHAINS_HALVING[],ASSETCHAINS_DECAY[];
+extern uint64_t ASSETCHAINS_ERAOPTIONS[];
 
 UniValue getinfo(const UniValue& params, bool fHelp)
 {
@@ -132,10 +135,10 @@ UniValue getinfo(const UniValue& params, bool fHelp)
 #endif
     //fprintf(stderr,"after wallet %u\n",(uint32_t)time(NULL));
     obj.push_back(Pair("blocks",        (int)chainActive.Height()));
-    if ( (longestchain= KOMODO_LONGESTCHAIN) != 0 && chainActive.Height() > longestchain )
+    if ( (longestchain = KOMODO_LONGESTCHAIN) == 0 || chainActive.Height() > longestchain )
         longestchain = chainActive.Height();
     //fprintf(stderr,"after longestchain %u\n",(uint32_t)time(NULL));
-    obj.push_back(Pair("longestchain",        longestchain));
+    obj.push_back(Pair("longestchain",  longestchain));
     obj.push_back(Pair("timeoffset",    GetTimeOffset()));
     if ( chainActive.LastTip() != 0 )
         obj.push_back(Pair("tiptime", (int)chainActive.LastTip()->nTime));
@@ -178,7 +181,9 @@ UniValue getinfo(const UniValue& params, bool fHelp)
         if ( ASSETCHAINS_REWARD[0] != 0 || ASSETCHAINS_LASTERA > 0 )
         {
             std::string acReward = "", acHalving = "", acDecay = "", acEndSubsidy = "";
-            for (int i = 0; i <= ASSETCHAINS_LASTERA; i++)
+            int lastEra = (int)ASSETCHAINS_LASTERA;     // this is done to work around an ARM cross compiler
+            bool isReserve = false;
+            for (int i = 0; i <= lastEra; i++)
             {
                 if (i == 0)
                 {
@@ -186,6 +191,10 @@ UniValue getinfo(const UniValue& params, bool fHelp)
                     acHalving = std::to_string(ASSETCHAINS_HALVING[i]);
                     acDecay = std::to_string(ASSETCHAINS_DECAY[i]);
                     acEndSubsidy = std::to_string(ASSETCHAINS_ENDSUBSIDY[i]);
+                    if (ASSETCHAINS_ERAOPTIONS[i] & CPBaaSChainDefinition::OPTION_RESERVE)
+                    {
+                        isReserve = true;
+                    }
                 }
                 else
                 {
@@ -201,6 +210,15 @@ UniValue getinfo(const UniValue& params, bool fHelp)
             obj.push_back(Pair("halving", acHalving));
             obj.push_back(Pair("decay", acDecay));
             obj.push_back(Pair("endsubsidy", acEndSubsidy));
+            if (isReserve)
+            {
+                obj.push_back(Pair("isreserve", "true"));
+                obj.push_back(Pair("currencystate", ConnectedChains.GetCurrencyState((int)chainActive.Height()).ToUniValue()));
+            }
+            else
+            {
+                obj.push_back(Pair("isreserve", "false"));
+            }
         }
 
         if ( ASSETCHAINS_COMMISSION != 0 )
@@ -702,14 +720,14 @@ UniValue setmocktime(const UniValue& params, bool fHelp)
     return NullUniValue;
 }
 
-bool getAddressFromIndex(const int &type, const uint160 &hash, std::string &address)
+bool getAddressFromIndex(
+    const int &type, const uint160 &hash, std::string &address)
 {
-    if (type == 2) {
-        address = CBitcoinAddress(CScriptID(hash)).ToString();
-    } else if (type == 1) {
-        address = CBitcoinAddress(CKeyID(hash)).ToString();
-    }
-    else {
+    if (type == CScript::P2SH) {
+        address = EncodeDestination(CScriptID(hash));
+    } else if (type == CScript::P2PKH) {
+        address = EncodeDestination(CKeyID(hash));
+    } else {
         return false;
     }
     return true;
@@ -1275,7 +1293,6 @@ UniValue getspentinfo(const UniValue& params, bool fHelp)
     if (!GetSpentIndex(key, value)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unable to get spent info");
     }
-
     UniValue obj(UniValue::VOBJ);
     obj.push_back(Pair("txid", value.txid.GetHex()));
     obj.push_back(Pair("index", (int)value.inputIndex));
@@ -1292,6 +1309,16 @@ static const CRPCCommand commands[] =
     { "util",               "z_validateaddress",      &z_validateaddress,      true  }, /* uses wallet if enabled */
     { "util",               "createmultisig",         &createmultisig,         true  },
     { "util",               "verifymessage",          &verifymessage,          true  },
+
+    // START insightexplorer
+    /* Address index */
+    { "addressindex",       "getaddresstxids",        &getaddresstxids,        false }, /* insight explorer */
+    { "addressindex",       "getaddressbalance",      &getaddressbalance,      false }, /* insight explorer */
+    { "addressindex",       "getaddressdeltas",       &getaddressdeltas,       false }, /* insight explorer */
+    { "addressindex",       "getaddressutxos",        &getaddressutxos,        false }, /* insight explorer */
+    { "addressindex",       "getaddressmempool",      &getaddressmempool,      true  }, /* insight explorer */
+    { "blockchain",         "getspentinfo",           &getspentinfo,           false }, /* insight explorer */
+    // END insightexplorer
 
     /* Not shown in help */
     { "hidden",             "setmocktime",            &setmocktime,            true  },

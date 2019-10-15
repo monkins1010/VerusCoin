@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "wallet/walletdb.h"
 
@@ -469,7 +469,13 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             CValidationState state;
             auto verifier = libzcash::ProofVerifier::Strict();
             if (!(CheckTransaction(wtx, state, verifier) && (wtx.GetHash() == hash) && state.IsValid()))
+            {
+                if (wtx.hashBlock.IsNull() && !wtx.vin.size() && !wtx.vout.size() && !wtx.vShieldedSpend.size() && !wtx.vShieldedOutput.size())
+                {
+                    strErr = "nulltx";
+                }
                 return false;
+            }
 
             // Undo serialize changes in 31600
             if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703)
@@ -919,8 +925,14 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
                     // Leave other errors alone, if we try to fix them we might make things worse.
                     fNoncriticalErrors = true; // ... but do warn the user there is something wrong.
                     if (strType == "tx")
+                    {
                         // Rescan if there is a bad transaction record:
                         SoftSetBoolArg("-rescan", true);
+                        if (strErr == "nulltx")
+                        {
+                            fNoncriticalErrors = false;
+                        }
+                    }
                 }
             }
             if (!strErr.empty())
@@ -971,7 +983,7 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
     return result;
 }
 
-DBErrors CWalletDB::FindWalletTx(CWallet* pwallet, vector<uint256>& vTxHash, vector<CWalletTx>& vWtx)
+DBErrors CWalletDB::FindWalletTxToZap(CWallet* pwallet, vector<uint256>& vTxHash, vector<CWalletTx>& vWtx)
 {
     pwallet->vchDefaultKey = CPubKey();
     bool fNoncriticalErrors = false;
@@ -1050,7 +1062,7 @@ DBErrors CWalletDB::ZapWalletTx(CWallet* pwallet, vector<CWalletTx>& vWtx)
 {
     // build list of wallet TXs
     vector<uint256> vTxHash;
-    DBErrors err = FindWalletTx(pwallet, vTxHash, vWtx);
+    DBErrors err = FindWalletTxToZap(pwallet, vTxHash, vWtx);
     if (err != DB_LOAD_OK)
         return err;
 

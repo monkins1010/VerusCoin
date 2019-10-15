@@ -1,7 +1,7 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "consensus/upgrades.h"
 #include "consensus/validation.h"
@@ -20,53 +20,267 @@
 #include "script/sign.h"
 #include "script/standard.h"
 #include "uint256.h"
+
+#include "cc/CCinclude.h"
+#include "cc/eval.h"
+#include "pbaas/notarization.h"
+#include "pbaas/identity.h"
+
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
 
 #include "komodo_defs.h"
-
 #include <stdint.h>
-
 #include <boost/assign/list_of.hpp>
-
 #include <univalue.h>
 
 using namespace std;
 
 extern char ASSETCHAINS_SYMBOL[];
 
-void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex)
+void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex, bool fIncludeAsm)
 {
     txnouttype type;
     vector<CTxDestination> addresses;
-    int nRequired;
 
-    out.push_back(Pair("asm", ScriptToAsmStr(scriptPubKey)));
-    if (fIncludeHex)
-        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
-
-    if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired))
+    // needs to be an object
+    if (!out.isObject())
     {
-        out.push_back(Pair("type", GetTxnOutputType(type)));
-        return;
+        out = UniValue(UniValue::VOBJ);
     }
 
-    out.push_back(Pair("reqSigs", nRequired));
+    int nRequired;
+    ExtractDestinations(scriptPubKey, type, addresses, nRequired);
     out.push_back(Pair("type", GetTxnOutputType(type)));
 
-    UniValue a(UniValue::VARR);
-    for (const CTxDestination& addr : addresses) {
-        a.push_back(EncodeDestination(addr));
+    COptCCParams p;
+    if (scriptPubKey.IsPayToCryptoCondition(p) && p.version >= COptCCParams::VERSION_V2)
+    {
+        switch(p.evalCode)
+        {
+            case EVAL_PBAASDEFINITION:
+            {
+                CPBaaSChainDefinition definition;
+
+                if (p.vData.size() && (definition = CPBaaSChainDefinition(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("pbaasChainDefinition", definition.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("pbaasChainDefinition", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_SERVICEREWARD:
+            {
+                CServiceReward reward;
+
+                if (p.vData.size() && (reward = CServiceReward(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("pbaasServiceReward", reward.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("pbaasServiceReward", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_EARNEDNOTARIZATION:
+            case EVAL_ACCEPTEDNOTARIZATION:
+            {
+                CPBaaSNotarization notarization;
+
+                if (p.vData.size() && (notarization = CPBaaSNotarization(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("pbaasNotarization", notarization.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("pbaasNotarization", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_FINALIZENOTARIZATION:
+            {
+                CNotarizationFinalization finalization;
+
+                if (p.vData.size())
+                {
+                    finalization = CNotarizationFinalization(p.vData[0]);
+                    out.push_back(Pair("pbaasFinalization", finalization.ToUniValue()));
+                }
+                break;
+            }
+
+            case EVAL_CURRENCYSTATE:
+            {
+                CCoinbaseCurrencyState cbcs;
+
+                if (p.vData.size() && (cbcs = CCoinbaseCurrencyState(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("currencystate", cbcs.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("currencystate", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_RESERVE_TRANSFER:
+            {
+                CReserveTransfer rt;
+
+                if (p.vData.size() && (rt = CReserveTransfer(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("reservetransfer", rt.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("reservetransfer", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_RESERVE_OUTPUT:
+            {
+                CReserveOutput ro;
+
+                if (p.vData.size() && (ro = CReserveOutput(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("reserveoutput", ro.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("reserveoutput", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_RESERVE_EXCHANGE:
+            {
+                CReserveExchange rex;
+
+                if (p.vData.size() && (rex = CReserveExchange(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("reserveexchange", rex.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("reserveexchange", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_RESERVE_DEPOSIT:
+            {
+                CReserveOutput ro;
+
+                if (p.vData.size() && (ro = CReserveOutput(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("reservedeposit", ro.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("reservedeposit", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_CROSSCHAIN_EXPORT:
+            {
+                CCrossChainExport ccx;
+
+                if (p.vData.size() && (ccx = CCrossChainExport(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("crosschainexport", ccx.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("crosschainexport", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_CROSSCHAIN_IMPORT:
+            {
+                CCrossChainImport cci;
+
+                if (p.vData.size() && (cci = CCrossChainImport(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("crosschainimport", cci.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("crosschainimport", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_IDENTITY_PRIMARY:
+            {
+                CIdentity identity;
+
+                if (p.vData.size() && (identity = CIdentity(p.vData[0])).IsValid())
+                {
+                    out.push_back(Pair("identityprimary", identity.ToUniValue()));
+                }
+                else
+                {
+                    out.push_back(Pair("identityprimary", "invalid"));
+                }
+                break;
+            }
+
+            case EVAL_IDENTITY_REVOKE:
+                out.push_back(Pair("identityrevoke", ""));
+                break;
+
+            case EVAL_IDENTITY_RECOVER:
+                out.push_back(Pair("identityrecover", ""));
+                break;
+
+            case EVAL_STAKEGUARD:
+                out.push_back(Pair("stakeguard", ""));
+                break;
+
+            default:
+                out.push_back(Pair("unknown", ""));
+        }
     }
-    out.push_back(Pair("addresses", a));
+
+    if (addresses.size())
+    {
+        out.push_back(Pair("reqSigs", nRequired));
+
+        UniValue a(UniValue::VARR);
+        for (const CTxDestination& addr : addresses) {
+            a.push_back(EncodeDestination(addr));
+        }
+        out.push_back(Pair("addresses", a));
+    }
+
+    if (fIncludeAsm)
+    {
+        out.push_back(Pair("asm", ScriptToAsmStr(scriptPubKey)));
+    }
+
+    if (fIncludeHex)
+    {
+        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
+    }
 }
 
 UniValue TxJoinSplitToJSON(const CTransaction& tx) {
     bool useGroth = tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION;
-    UniValue vjoinsplit(UniValue::VARR);
-    for (unsigned int i = 0; i < tx.vjoinsplit.size(); i++) {
-        const JSDescription& jsdescription = tx.vjoinsplit[i];
+    UniValue vJoinSplit(UniValue::VARR);
+    for (unsigned int i = 0; i < tx.vJoinSplit.size(); i++) {
+        const JSDescription& jsdescription = tx.vJoinSplit[i];
         UniValue joinsplit(UniValue::VOBJ);
 
         joinsplit.push_back(Pair("vpub_old", ValueFromAmount(jsdescription.vpub_old)));
@@ -116,9 +330,9 @@ UniValue TxJoinSplitToJSON(const CTransaction& tx) {
             joinsplit.push_back(Pair("ciphertexts", ciphertexts));
         }
 
-        vjoinsplit.push_back(joinsplit);
+        vJoinSplit.push_back(joinsplit);
     }
-    return vjoinsplit;
+    return vJoinSplit;
 }
 
 uint64_t komodo_accrued_interest(int32_t *txheightp,uint32_t *locktimep,uint256 hash,int32_t n,int32_t checkheight,uint64_t checkvalue,int32_t tipheight);
@@ -250,7 +464,6 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             out.push_back(Pair("spentIndex", (int)spentInfo.inputIndex));
             out.push_back(Pair("spentHeight", spentInfo.blockHeight));
         }
-
         vout.push_back(out);
     }
     entry.push_back(Pair("vout", vout));
@@ -282,12 +495,12 @@ void TxToJSONExpanded(const CTransaction& tx, const uint256 hashBlock, UniValue&
             entry.push_back(Pair("confirmations", 0));
         }
     }
-
 }
 
 void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
 {
-    entry.push_back(Pair("txid", tx.GetHash().GetHex()));
+    const uint256 txid = tx.GetHash();
+    entry.push_back(Pair("txid", txid.GetHex()));
     entry.push_back(Pair("overwintered", tx.fOverwintered));
     entry.push_back(Pair("version", tx.nVersion));
     if (tx.fOverwintered) {
@@ -309,6 +522,20 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             o.push_back(Pair("asm", ScriptToAsmStr(txin.scriptSig, true)));
             o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
             in.push_back(Pair("scriptSig", o));
+
+            // Add address and value info if spentindex enabled
+            CSpentIndexValue spentInfo;
+            CSpentIndexKey spentKey(txin.prevout.hash, txin.prevout.n);
+            if (fSpentIndex && GetSpentIndex(spentKey, spentInfo)) {
+                in.push_back(Pair("value", ValueFromAmount(spentInfo.satoshis)));
+                in.push_back(Pair("valueSat", spentInfo.satoshis));
+
+                CTxDestination dest =
+                    DestFromAddressHash(spentInfo.addressType, spentInfo.addressHash);
+                if (IsValidDestination(dest)) {
+                    in.push_back(Pair("address", EncodeDestination(dest)));
+                }
+            }
         }
         in.push_back(Pair("sequence", (int64_t)txin.nSequence));
         vin.push_back(in);
@@ -329,10 +556,20 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             out.push_back(Pair("interest", ValueFromAmount(interest)));
         }        
         out.push_back(Pair("valueZat", txout.nValue));
+        out.push_back(Pair("valueSat", txout.nValue));
         out.push_back(Pair("n", (int64_t)i));
         UniValue o(UniValue::VOBJ);
         ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
         out.push_back(Pair("scriptPubKey", o));
+
+        // Add spent information if spentindex is enabled
+        CSpentIndexValue spentInfo;
+        CSpentIndexKey spentKey(txid, i);
+        if (fSpentIndex && GetSpentIndex(spentKey, spentInfo)) {
+            out.push_back(Pair("spentTxId", spentInfo.txid.GetHex()));
+            out.push_back(Pair("spentIndex", (int)spentInfo.inputIndex));
+            out.push_back(Pair("spentHeight", spentInfo.blockHeight));
+        }
         vout.push_back(out);
     }
     entry.push_back(Pair("vout", vout));
@@ -342,6 +579,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
 
     if (tx.fOverwintered && tx.nVersion >= SAPLING_TX_VERSION) {
         entry.push_back(Pair("valueBalance", ValueFromAmount(tx.valueBalance)));
+        entry.push_back(Pair("valueBalanceZat", tx.valueBalance));
         UniValue vspenddesc = TxShieldedSpendsToJSON(tx);
         entry.push_back(Pair("vShieldedSpend", vspenddesc));
         UniValue voutputdesc = TxShieldedOutputsToJSON(tx);
@@ -357,12 +595,14 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         if (mi != mapBlockIndex.end() && (*mi).second) {
             CBlockIndex* pindex = (*mi).second;
             if (chainActive.Contains(pindex)) {
+                entry.push_back(Pair("height", pindex->GetHeight()));
                 entry.push_back(Pair("confirmations", 1 + chainActive.Height() - pindex->GetHeight()));
                 entry.push_back(Pair("time", pindex->GetBlockTime()));
                 entry.push_back(Pair("blocktime", pindex->GetBlockTime()));
-            }
-            else
+            } else {
+                entry.push_back(Pair("height", -1));
                 entry.push_back(Pair("confirmations", 0));
+            }
         }
     }
 }
@@ -461,12 +701,13 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             + HelpExampleRpc("getrawtransaction", "\"mytxid\", 1")
         );
 
-
     uint256 hash = ParseHashV(params[0], "parameter 1");
 
     bool fVerbose = false;
     if (params.size() > 1)
         fVerbose = (params[1].get_int() != 0);
+
+    LOCK(cs_main);
 
     CTransaction tx;
     uint256 hashBlock;
@@ -611,7 +852,7 @@ UniValue gettxoutproof(const UniValue& params, bool fHelp)
     if (pblockindex == NULL)
     {
         CTransaction tx;
-        if (!GetTransaction(oneTxid, tx, hashBlock, false) || hashBlock.IsNull())
+        if (!GetTransaction(oneTxid, tx, Params().GetConsensus(), hashBlock, false) || hashBlock.IsNull())
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not yet in block");
         if (!mapBlockIndex.count(hashBlock))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Transaction index corrupt");
@@ -619,7 +860,7 @@ UniValue gettxoutproof(const UniValue& params, bool fHelp)
     }
 
     CBlock block;
-    if(!ReadBlockFromDisk(block, pblockindex,1))
+    if(!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus(), 1))
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
 
     unsigned int ntxFound = 0;
@@ -695,7 +936,9 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp)
             "      ,...\n"
             "    }\n"
             "3. locktime              (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
-            "4. expiryheight          (numeric, optional, default=" + strprintf("%d", DEFAULT_TX_EXPIRY_DELTA) + ") Expiry height of transaction (if Overwinter is active)\n"
+            "4. expiryheight          (numeric, optional, default="
+                + strprintf("nextblockheight+%d (pre-Blossom) or nextblockheight+%d (post-Blossom)", DEFAULT_PRE_BLOSSOM_TX_EXPIRY_DELTA, DEFAULT_POST_BLOSSOM_TX_EXPIRY_DELTA) + ") "
+                "Expiry height of transaction (if Overwinter is active)\n"
             "\nResult:\n"
             "\"transaction\"            (string) hex string of the transaction\n"
 
@@ -724,10 +967,16 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp)
     }
     
     if (params.size() > 3 && !params[3].isNull()) {
-        if (NetworkUpgradeActive(nextBlockHeight, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER)) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nextBlockHeight, Consensus::UPGRADE_OVERWINTER)) {
             int64_t nExpiryHeight = params[3].get_int64();
             if (nExpiryHeight < 0 || nExpiryHeight >= TX_EXPIRY_HEIGHT_THRESHOLD) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, expiryheight must be nonnegative and less than %d.", TX_EXPIRY_HEIGHT_THRESHOLD));
+            }
+            // DoS mitigation: reject transactions expiring soon
+            if (nextBlockHeight + TX_EXPIRING_SOON_THRESHOLD > nExpiryHeight) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER,
+                    strprintf("Invalid parameter, expiryheight should be at least %d to avoid transaction expiring soon",
+                    nextBlockHeight + TX_EXPIRING_SOON_THRESHOLD));
             }
             rawTx.nExpiryHeight = nExpiryHeight;
         } else {
@@ -1227,6 +1476,19 @@ UniValue sendrawtransaction(const UniValue& params, bool fHelp)
     if (!DecodeHexTx(tx, params[0].get_str()))
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     uint256 hashTx = tx.GetHash();
+
+    // DoS mitigation: reject transactions expiring soon
+    if (tx.nExpiryHeight > 0) {
+        int nextBlockHeight = chainActive.Height() + 1;
+        if (Params().GetConsensus().NetworkUpgradeActive(nextBlockHeight, Consensus::UPGRADE_OVERWINTER)) {
+            if (nextBlockHeight + TX_EXPIRING_SOON_THRESHOLD > tx.nExpiryHeight) {
+                throw JSONRPCError(RPC_TRANSACTION_REJECTED,
+                    strprintf("tx-expiring-soon: expiryheight is %d but should be at least %d to avoid transaction expiring soon",
+                    tx.nExpiryHeight,
+                    nextBlockHeight + TX_EXPIRING_SOON_THRESHOLD));
+            }
+        }
+    }
 
     bool fOverrideFees = false;
     if (params.size() > 1)

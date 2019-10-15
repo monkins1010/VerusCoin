@@ -1,11 +1,17 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # Copyright (c) 2018 The Zcash developers
 # Distributed under the MIT software license, see the accompanying
-# file COPYING or http://www.opensource.org/licenses/mit-license.php.
+# file COPYING or https://www.opensource.org/licenses/mit-license.php .
+
+import sys; assert sys.version_info < (3,), ur"This script does not run under Python 3. Please use Python 2.7.x."
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, initialize_chain_clean, \
-    start_node, connect_nodes, wait_and_assert_operationid_status
+from test_framework.util import (
+    assert_equal, assert_true, initialize_chain_clean,
+    start_node, connect_nodes, wait_and_assert_operationid_status,
+    get_coinbase_address
+)
+from test_framework.authproxy import JSONRPCException
 
 from decimal import Decimal
 
@@ -18,6 +24,7 @@ class MempoolUpgradeActivationTest(BitcoinTestFramework):
         args = ["-checkmempool", "-debug=mempool", "-blockmaxsize=4000",
             "-nuparams=5ba81b19:200", # Overwinter
             "-nuparams=76b809bb:210", # Sapling
+            "-nuparams=2bb40e60:220", # Blossom
         ]
         self.nodes = []
         self.nodes.append(start_node(0, self.options.tmpdir, args))
@@ -40,8 +47,8 @@ class MempoolUpgradeActivationTest(BitcoinTestFramework):
         self.sync_all()
 
         # Shield some ZEC
-        node1_taddr = self.nodes[1].getnewaddress()
-        node0_zaddr = self.nodes[0].z_getnewaddress()
+        node1_taddr = get_coinbase_address(self.nodes[1])
+        node0_zaddr = self.nodes[0].z_getnewaddress('sprout')
         recipients = [{'address': node0_zaddr, 'amount': Decimal('10')}]
         myopid = self.nodes[1].z_sendmany(node1_taddr, recipients, 1, Decimal('0'))
         print wait_and_assert_operationid_status(self.nodes[1], myopid)
@@ -63,8 +70,16 @@ class MempoolUpgradeActivationTest(BitcoinTestFramework):
             # Fill the mempool with twice as many transactions as can fit into blocks
             node0_taddr = self.nodes[0].getnewaddress()
             x_txids = []
+            info = self.nodes[0].getblockchaininfo()
+            chaintip_branchid = info["consensus"]["chaintip"]
             while self.nodes[1].getmempoolinfo()['bytes'] < 2 * 4000:
-                x_txids.append(self.nodes[1].sendtoaddress(node0_taddr, Decimal('0.001')))
+                try:
+                    x_txids.append(self.nodes[1].sendtoaddress(node0_taddr, Decimal('0.001')))
+                except JSONRPCException:
+                    # This fails due to expiring soon threshold, which applies from Overwinter onwards.
+                    upgrade_name = info["upgrades"][chaintip_branchid]["name"]
+                    assert_true(upgrade_name in ("Overwinter", "Sapling"), upgrade_name)
+                    break
             self.sync_all()
 
             # Spends should be in the mempool
@@ -79,12 +94,14 @@ class MempoolUpgradeActivationTest(BitcoinTestFramework):
             # mempool should be empty.
             assert_equal(set(self.nodes[0].getrawmempool()), set())
 
+            # When transitioning from Sprout to Overwinter, where expiring soon threshold does not apply:
             # Block H - 1 should contain a subset of the original mempool
             # (with all other transactions having been dropped)
             block_txids = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['tx']
-            assert(len(block_txids) < len(x_txids))
-            for txid in block_txids[1:]: # Exclude coinbase
-                assert(txid in x_txids)
+            if chaintip_branchid is "00000000":
+                assert(len(block_txids) < len(x_txids))
+                for txid in block_txids[1:]: # Exclude coinbase
+                    assert(txid in x_txids)
 
             # Create some transparent Y transactions
             y_txids = [self.nodes[1].sendtoaddress(node0_taddr, Decimal('0.001')) for i in range(10)]
@@ -141,6 +158,14 @@ class MempoolUpgradeActivationTest(BitcoinTestFramework):
         # Current height = 207
         nu_activation_checks()
         # Current height = 215
+
+        self.nodes[0].generate(2)
+        self.sync_all()
+
+        print('Testing Sapling -> Blossom activation boundary')
+        # Current height = 217
+        nu_activation_checks()
+        # Current height = 225
 
 if __name__ == '__main__':
     MempoolUpgradeActivationTest().main()

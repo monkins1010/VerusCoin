@@ -43,6 +43,7 @@ one other technical note is that komodod has the insight-explorer extensions bui
 #include "../script/standard.h"
 #include "../base58.h"
 #include "../core_io.h"
+#include "../key_io.h"
 #include "../script/sign.h"
 #include "../wallet/wallet.h"
 #include <univalue.h>
@@ -54,8 +55,6 @@ extern uint32_t ASSETCHAINS_CC;
 extern std::string CCerror;
 
 #define SMALLVAL 0.000000000000001
-union _bits256 { uint8_t bytes[32]; uint16_t ushorts[16]; uint32_t uints[8]; uint64_t ulongs[4]; uint64_t txid; };
-typedef union _bits256 bits256;
 
 struct CC_utxo
 {
@@ -96,12 +95,12 @@ struct oracleprice_info
 #ifdef ENABLE_WALLET
 extern CWallet* pwalletMain;
 #endif
-bool GetAddressUnspent(uint160 addressHash, int type,std::vector<std::pair<CAddressUnspentKey,CAddressUnspentValue> > &unspentOutputs);
+bool GetAddressUnspent(const uint160& addressHash, int type, std::vector<CAddressUnspentDbEntry>& unspentOutputs);
 
 static const uint256 zeroid;
 bool myGetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlock);
 int32_t is_hexstr(char *str,int32_t n);
-bool myAddtomempool(CTransaction &tx, CValidationState *pstate = NULL);
+bool myAddtomempool(CTransaction &tx, CValidationState *pstate = NULL, int32_t simHeight = 0, bool *missinginputs = NULL);
 //uint64_t myGettxout(uint256 hash,int32_t n);
 bool myIsutxo_spentinmempool(uint256 txid,int32_t vout);
 int32_t myIsutxo_spent(uint256 &spenttxid,uint256 txid,int32_t vout);
@@ -137,7 +136,10 @@ uint256 DiceHashEntropy(uint256 &entropy,uint256 _txidpriv);
 CTxOut MakeCC1vout(uint8_t evalcode,CAmount nValue,CPubKey pk);
 CTxOut MakeCC1of2vout(uint8_t evalcode,CAmount nValue,CPubKey pk,CPubKey pk2);
 CC *MakeCCcond1(uint8_t evalcode,CPubKey pk);
+CC *MakeCCcond1(uint8_t evalcode,CTxDestination dest);
+CC *MakeCCcondAny(uint8_t evalcode,std::vector<CTxDestination> dests);
 CC *MakeCCcond1of2(uint8_t evalcode,CPubKey pk1,CPubKey pk2);
+CC *MakeCCcondMofN(uint8_t evalcode, const std::vector<CTxDestination> &dests, int M);
 CC *GetCryptoCondition(CScript const& scriptSig);
 void CCaddr2set(struct CCcontract_info *cp,uint8_t evalcode,CPubKey pk,uint8_t *priv,char *coinaddr);
 void CCaddr3set(struct CCcontract_info *cp,uint8_t evalcode,CPubKey pk,uint8_t *priv,char *coinaddr);

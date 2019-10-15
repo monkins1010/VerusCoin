@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #if defined(HAVE_CONFIG_H)
 #include "config/bitcoin-config.h"
@@ -28,8 +28,10 @@
 #include "miner.h"
 #include "net.h"
 #include "rpc/server.h"
+#include "rpc/pbaasrpc.h"
 #include "rpc/register.h"
 #include "script/standard.h"
+#include "script/sigcache.h"
 #include "scheduler.h"
 #include "txdb.h"
 #include "torcontrol.h"
@@ -38,6 +40,7 @@
 #include "utilmoneystr.h"
 #include "validationinterface.h"
 #ifdef ENABLE_WALLET
+#include "key_io.h"
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h"
 #endif
@@ -207,13 +210,15 @@ void Shutdown()
     if (pwalletMain)
         pwalletMain->Flush(false);
 #endif
+
 #ifdef ENABLE_MINING
- #ifdef ENABLE_WALLET
+#ifdef ENABLE_WALLET
     GenerateBitcoins(false, NULL, 0);
- #else
+#else
     GenerateBitcoins(false, 0);
- #endif
 #endif
+#endif
+
     StopNode();
     StopTorControl();
     UnregisterNodeSignals(GetNodeSignals());
@@ -365,7 +370,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-par=<n>", strprintf(_("Set the number of script verification threads (%u to %d, 0 = auto, <0 = leave that many cores free, default: %d)"),
         -(int)boost::thread::hardware_concurrency(), MAX_SCRIPTCHECK_THREADS, DEFAULT_SCRIPTCHECK_THREADS));
 #ifndef _WIN32
-    strUsage += HelpMessageOpt("-pid=<file>", strprintf(_("Specify pid file (default: %s)"), "komodod.pid"));
+    strUsage += HelpMessageOpt("-pid=<file>", strprintf(_("Specify pid file (default: %s)"), "verusd.pid"));
 #endif
     strUsage += HelpMessageOpt("-prune=<n>", strprintf(_("Reduce storage requirements by pruning (deleting) old blocks. This mode disables wallet support and is incompatible with -txindex. "
             "Warning: Reverting this setting requires re-downloading the entire blockchain. "
@@ -415,6 +420,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageGroup(_("Wallet options:"));
     strUsage += HelpMessageOpt("-disablewallet", _("Do not load the wallet and disable wallet RPC calls"));
     strUsage += HelpMessageOpt("-keypool=<n>", strprintf(_("Set key pool size to <n> (default: %u)"), 100));
+    strUsage += HelpMessageOpt("-migration", _("Enable the Sprout to Sapling migration"));
+    strUsage += HelpMessageOpt("-migrationdestaddress=<zaddr>", _("Set the Sapling migration address"));
     if (showDebug)
         strUsage += HelpMessageOpt("-mintxfee=<amt>", strprintf("Fees (in %s/kB) smaller than this are considered zero fee for transaction creation (default: %s)",
             CURRENCY_UNIT, FormatMoney(CWallet::minTxFee.GetFeePerK())));
@@ -425,7 +432,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-sendfreetransactions", strprintf(_("Send transactions as zero-fee transactions if possible (default: %u)"), 0));
     strUsage += HelpMessageOpt("-spendzeroconfchange", strprintf(_("Spend unconfirmed change when sending transactions (default: %u)"), 1));
     strUsage += HelpMessageOpt("-txconfirmtarget=<n>", strprintf(_("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)"), DEFAULT_TX_CONFIRM_TARGET));
-    strUsage += HelpMessageOpt("-txexpirydelta", strprintf(_("Set the number of blocks after which a transaction that has not been mined will become invalid (default: %u)"), DEFAULT_TX_EXPIRY_DELTA));
+    strUsage += HelpMessageOpt("-txexpirydelta", strprintf(_("Set the number of blocks after which a transaction that has not been mined will become invalid (min: %u, default: %u (pre-Blossom) or %u (post-Blossom))"), TX_EXPIRING_SOON_THRESHOLD + 1, DEFAULT_PRE_BLOSSOM_TX_EXPIRY_DELTA, DEFAULT_POST_BLOSSOM_TX_EXPIRY_DELTA));
     strUsage += HelpMessageOpt("-maxtxfee=<amt>", strprintf(_("Maximum total fees (in %s) to use in a single wallet transaction; setting this too low may abort large transactions (default: %s)"),
         CURRENCY_UNIT, FormatMoney(maxTxFee)));
     strUsage += HelpMessageOpt("-upgradewallet", _("Upgrade wallet to latest format") + " " + _("on startup"));
@@ -477,7 +484,7 @@ std::string HelpMessage(HelpMessageMode mode)
     {
         strUsage += HelpMessageOpt("-limitfreerelay=<n>", strprintf("Continuously rate-limit free transactions to <n>*1000 bytes per minute (default: %u)", 15));
         strUsage += HelpMessageOpt("-relaypriority", strprintf("Require high priority for relaying free or low-fee transactions (default: %u)", 0));
-        strUsage += HelpMessageOpt("-maxsigcachesize=<n>", strprintf("Limit size of signature cache to <n> entries (default: %u)", 50000));
+        strUsage += HelpMessageOpt("-maxsigcachesize=<n>", strprintf("Limit size of signature cache to <n> MiB (default: %u)", DEFAULT_MAX_SIG_CACHE_SIZE));
         strUsage += HelpMessageOpt("-maxtipage=<n>", strprintf("Maximum tip age in seconds to consider node in initial block download (default: %u)", DEFAULT_MAX_TIP_AGE));
     }
     strUsage += HelpMessageOpt("-minrelaytxfee=<amt>", strprintf(_("Fees (in %s/kB) smaller than this are considered zero fee for relaying (default: %s)"),
@@ -490,7 +497,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
             "This is intended for regression testing tools and app development.");
     }
-    strUsage += HelpMessageOpt("-shrinkdebugfile", _("Shrink debug.log file on client startup (default: 1 when no -debug)"));
+    // strUsage += HelpMessageOpt("-shrinkdebugfile", _("Shrink debug.log file on client startup (default: 1 when no -debug)"));
     strUsage += HelpMessageOpt("-testnet", _("Use the test network"));
 
     strUsage += HelpMessageGroup(_("Node relay options:"));
@@ -617,6 +624,7 @@ void CleanupBlockRevFiles()
 
 void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
 {
+    const CChainParams& chainparams = Params();
     RenameThread("zcash-loadblk");
     // -reindex
     if (fReindex) {
@@ -630,14 +638,14 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
             if (!file)
                 break; // This error is logged in OpenBlockFile
             LogPrintf("Reindexing block file blk%05u.dat...\n", (unsigned int)nFile);
-            LoadExternalBlockFile(file, &pos);
+            LoadExternalBlockFile(chainparams, file, &pos);
             nFile++;
         }
         pblocktree->WriteReindexing(false);
         fReindex = false;
         LogPrintf("Reindexing finished\n");
         // To avoid ending up in a situation without genesis block, re-try initializing (no-op if reindexing worked):
-        InitBlockIndex();
+        InitBlockIndex(chainparams);
         KOMODO_LOADINGBLOCKS = 0;
     }
 
@@ -649,7 +657,7 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
             CImportingNow imp;
             boost::filesystem::path pathBootstrapOld = GetDataDir() / "bootstrap.dat.old";
             LogPrintf("Importing bootstrap.dat...\n");
-            LoadExternalBlockFile(file);
+            LoadExternalBlockFile(chainparams, file);
             RenameOver(pathBootstrap, pathBootstrapOld);
         } else {
             LogPrintf("Warning: Could not open bootstrap file %s\n", pathBootstrap.string());
@@ -662,7 +670,7 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
         if (file) {
             CImportingNow imp;
             LogPrintf("Importing blocks file %s...\n", path.string());
-            LoadExternalBlockFile(file);
+            LoadExternalBlockFile(chainparams, file);
         } else {
             LogPrintf("Warning: Could not open blocks file %s\n", path.string());
         }
@@ -671,6 +679,22 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
     if (GetBoolArg("-stopafterblockimport", false)) {
         LogPrintf("Stopping after block import\n");
         StartShutdown();
+    }
+}
+
+void ThreadNotifyRecentlyAdded()
+{
+    while (true) {
+        // Run the notifier on an integer second in the steady clock.
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        auto nextFire = std::chrono::duration_cast<std::chrono::seconds>(
+            now + std::chrono::seconds(1));
+        std::this_thread::sleep_until(
+            std::chrono::time_point<std::chrono::steady_clock>(nextFire));
+
+        boost::this_thread::interruption_point();
+
+        mempool.NotifyRecentlyAdded();
     }
 }
 
@@ -714,7 +738,7 @@ static void ZC_LoadParams(
         uiInterface.ThreadSafeMessageBox(strprintf(
             _("Cannot find the Zcash network parameters in the following directory:\n"
               "%s\n"
-              "Please run 'zcash-fetch-params' or './zcutil/fetch-params.sh' and then restart."),
+              "Please run 'fetch-params' or './zcutil/fetch-params.sh' and then restart."),
                 ZC_GetParamsDir()),
             "", CClientUIInterface::MSG_ERROR);
         StartShutdown();
@@ -781,7 +805,7 @@ bool AppInitServers(boost::thread_group& threadGroup)
  */
 extern int32_t KOMODO_REWIND;
 
-bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
+bool AppInitNetworking()
 {
     // ********************************************************* Step 1: setup
 #ifdef _MSC_VER
@@ -809,7 +833,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     if (!SetupNetworking())
         return InitError("Error: Initializing networking failed");
+    
+    return true;
+}
 
+bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
+{
 #ifndef _WIN32
     if (GetBoolArg("-sysperms", false)) {
 #ifdef ENABLE_WALLET
@@ -851,11 +880,14 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     if (!fExperimentalMode) {
         if (mapArgs.count("-developerencryptwallet")) {
             return InitError(_("Wallet encryption requires -experimentalfeatures."));
-        }
-        else if (mapArgs.count("-paymentdisclosure")) {
+        } else if (mapArgs.count("-developersetpoolsizezero")) {
+            return InitError(_("Setting the size of shielded pools to zero requires -experimentalfeatures."));
+        } else if (mapArgs.count("-paymentdisclosure")) {
             return InitError(_("Payment disclosure requires -experimentalfeatures."));
         } else if (mapArgs.count("-zmergetoaddress")) {
             return InitError(_("RPC method z_mergetoaddress requires -experimentalfeatures."));
+        } else if (mapArgs.count("-savesproutr1cs")) {
+            return InitError(_("Saving the Sprout R1CS requires -experimentalfeatures."));
         }
     }
 
@@ -1073,11 +1105,26 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         }
     }
     nTxConfirmTarget = GetArg("-txconfirmtarget", DEFAULT_TX_CONFIRM_TARGET);
-    expiryDelta = GetArg("-txexpirydelta", DEFAULT_TX_EXPIRY_DELTA);
+    if (mapArgs.count("-txexpirydelta")) {
+        int64_t expiryDelta = atoi64(mapArgs["-txexpirydelta"]);
+        uint32_t minExpiryDelta = TX_EXPIRING_SOON_THRESHOLD + 1;
+        if (expiryDelta < minExpiryDelta) {
+            return InitError(strprintf(_("Invalid value for -txexpirydelta='%u' (must be least %u)"), expiryDelta, minExpiryDelta));
+        }
+        expiryDeltaArg = expiryDelta;
+    }
     bSpendZeroConfChange = GetBoolArg("-spendzeroconfchange", true);
     fSendFreeTransactions = GetBoolArg("-sendfreetransactions", false);
 
     std::string strWalletFile = GetArg("-wallet", "wallet.dat");
+    // Check Sapling migration address if set and is a valid Sapling address
+    if (mapArgs.count("-migrationdestaddress")) {
+        std::string migrationDestAddress = mapArgs["-migrationdestaddress"];
+        libzcash::PaymentAddress address = DecodePaymentAddress(migrationDestAddress);
+        if (boost::get<libzcash::SaplingPaymentAddress>(&address) == nullptr) {
+            return InitError(_("-migrationdestaddress must be a valid Sapling address."));
+        }
+    }
 #endif // ENABLE_WALLET
 
     fIsBareMultisigStd = GetBoolArg("-permitbaremultisig", true);
@@ -1165,7 +1212,16 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         // initialize VerusHash
         CVerusHash::init();
         CVerusHashV2::init();
-        CBlockHeader::SetVerusHash();
+        CBlockHeader::SetVerusV2Hash();
+        if (strcmp(ASSETCHAINS_SYMBOL,"VRSC") == 0)
+        {
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV2, 310000);
+        }
+        else
+        {
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV2, 1);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV3, 1);
+        }
     }
 
     // Sanity check
@@ -1241,6 +1297,14 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     // Initialize Zcash circuit parameters
     ZC_LoadParams(chainparams);
+
+    if (GetBoolArg("-savesproutr1cs", false)) {
+        boost::filesystem::path r1cs_path = ZC_GetParamsDir() / "r1cs";
+
+        LogPrintf("Saving Sprout R1CS to %s\n", r1cs_path.string());
+
+        pzcashParams->saveR1CS(r1cs_path.string());
+    }
 
     /* Start the RPC server already.  It will be started in "warmup" mode
      * and not really process calls already (but it will signify connections
@@ -1483,8 +1547,9 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     if ( fReindex == 0 )
     {
-        bool checkval,fAddressIndex,fSpentIndex;
+        bool checkval,fAddressIndex,fSpentIndex,fTimeStampIndex;
         pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex, dbCompression, dbMaxOpenFiles);
+
         fAddressIndex = GetBoolArg("-addressindex", DEFAULT_ADDRESSINDEX);
         pblocktree->ReadFlag("addressindex", checkval);
         if ( checkval != fAddressIndex  )
@@ -1493,12 +1558,33 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             fprintf(stderr,"set addressindex, will reindex. sorry will take a while.\n");
             fReindex = true;
         }
+
         fSpentIndex = GetBoolArg("-spentindex", DEFAULT_SPENTINDEX);
         pblocktree->ReadFlag("spentindex", checkval);
         if ( checkval != fSpentIndex )
         {
             pblocktree->WriteFlag("spentindex", fSpentIndex);
             fprintf(stderr,"set spentindex, will reindex. sorry will take a while.\n");
+            fReindex = true;
+        }
+
+        pblocktree->ReadFlag("timestampindex", checkval);
+        bool defaultState = DEFAULT_TIMESTAMPINDEX ? DEFAULT_TIMESTAMPINDEX : checkval;
+        fTimeStampIndex = GetBoolArg("-timestampindex", defaultState);
+        if (checkval != fTimeStampIndex)
+        {
+            pblocktree->WriteFlag("timestampindex", fTimeStampIndex);
+            fprintf(stderr,"set timestamp index, will reindex. sorry will take a while.\n");
+            fReindex = true;
+        }
+
+        pblocktree->ReadFlag("insightexplorer", checkval);
+        defaultState = DEFAULT_INSIGHTEXPLORER ? DEFAULT_INSIGHTEXPLORER : checkval;
+        fInsightExplorer = GetBoolArg("-insightexplorer", defaultState);
+        if (checkval != fInsightExplorer)
+        {
+            pblocktree->WriteFlag("insightexplorer", fInsightExplorer);
+            fprintf(stderr,"set main indexes, will reindex. sorry will take a while.\n");
             fReindex = true;
         }
     }
@@ -1547,7 +1633,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
                     return InitError(_("Incorrect or no genesis block found. Wrong datadir for network?"));
 
                 // Initialize the block index (no-op if non-empty database was already loaded)
-                if (!InitBlockIndex()) {
+                if (!InitBlockIndex(chainparams)) {
                     strLoadError = _("Error initializing block database");
                     break;
                 }
@@ -1555,6 +1641,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
                 // Check for changed -txindex state
                 if (fTxIndex != GetBoolArg("-txindex", true)) {
                     strLoadError = _("You need to rebuild the database using -reindex to change -txindex");
+                    break;
+                }
+
+                // Check for changed -insightexplorer state
+                if (fInsightExplorer != GetBoolArg("-insightexplorer", false)) {
+                    strLoadError = _("You need to rebuild the database using -reindex to change -insightexplorer");
                     break;
                 }
 
@@ -1580,7 +1672,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
                 }
                 if ( KOMODO_REWIND == 0 )
                 {
-                    if (!CVerifyDB().VerifyDB(pcoinsdbview, GetArg("-checklevel", 3),
+                    if (!CVerifyDB().VerifyDB(Params(), pcoinsdbview, GetArg("-checklevel", 3),
                                               GetArg("-checkblocks", 288))) {
                         strLoadError = _("Corrupted block database detected");
                         break;
@@ -1703,9 +1795,16 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
         if (!pwalletMain->HaveHDSeed())
         {
-            // generate a new HD seed
-            pwalletMain->GenerateNewSeed();
+            // We can't set the new HD seed until the wallet is decrypted.
+            // https://github.com/zcash/zcash/issues/3607
+            if (!pwalletMain->IsCrypted()) {
+                // generate a new HD seed
+                pwalletMain->GenerateNewSeed();
+            }
         }
+
+        // Set sapling migration status
+        pwalletMain->fSaplingMigrationEnabled = GetBoolArg("-migration", false);
 
         if (fFirstRun)
         {
@@ -1795,7 +1894,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
  #ifdef ENABLE_WALLET
         bool minerAddressInLocalWallet = false;
         if (pwalletMain) {
-            // Address has alreday been validated
+            // Address has already been validated
             CTxDestination addr = DecodeDestination(mapArgs["-mineraddress"]);
             CKeyID keyID = boost::get<CKeyID>(addr);
             minerAddressInLocalWallet = pwalletMain->HaveKey(keyID);
@@ -1804,6 +1903,22 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             return InitError(_("-mineraddress is not in the local wallet. Either use a local address, or set -minetolocalwallet=0"));
         }
  #endif // ENABLE_WALLET
+
+        // This is leveraging the fact that boost::signals2 executes connected
+        // handlers in-order. Further up, the wallet is connected to this signal
+        // if the wallet is enabled. The wallet's ScriptForMining handler does
+        // nothing if -mineraddress is set, and GetScriptForMinerAddress() does
+        // nothing if -mineraddress is not set (or set to an invalid address).
+        //
+        // The upshot is that when ScriptForMining(script) is called:
+        // - If -mineraddress is set (whether or not the wallet is enabled), the
+        //   CScript argument is set to -mineraddress.
+        // - If the wallet is enabled and -mineraddress is not set, the CScript
+        //   argument is set to a wallet address.
+        // - If the wallet is disabled and -mineraddress is not set, the CScript
+        //   argument is not modified; in practice this means it is empty, and
+        //   GenerateBitcoins() returns an error.
+        GetMainSignals().ScriptForMining.connect(GetScriptForMinerAddress);
     }
 #endif // ENABLE_MINING
 
@@ -1829,7 +1944,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         uiInterface.InitMessage(_("Activating best chain..."));
         // scan for better chains in the block chain database, that are not yet connected in the active best chain
         CValidationState state;
-        if ( !ActivateBestChain(state))
+        if ( !ActivateBestChain(state, Params()))
             strErrors << "Failed to connect best block";
     }
     std::vector<boost::filesystem::path> vImportFiles;
@@ -1864,24 +1979,36 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     LogPrintf("mapAddressBook.size() = %u\n",  pwalletMain ? pwalletMain->mapAddressBook.size() : 0);
 #endif
 
+    // Start the thread that notifies listeners of transactions that have been
+    // recently added to the mempool.
+    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "txnotify", &ThreadNotifyRecentlyAdded));
+
     if (GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);
 
     StartNode(threadGroup, scheduler);
 
     VERUS_CHEATCATCHER = GetArg("-cheatcatcher", "");
+    bool gen = GetBoolArg("-gen", false);
 
 #ifdef ENABLE_MINING
     // Generate coins in the background
  #ifdef ENABLE_WALLET
     VERUS_MINTBLOCKS = GetBoolArg("-mint", false);
+    mapArgs["-gen"] = gen || VERUS_MINTBLOCKS ? "1" : "0";
+    mapArgs["-genproclimit"] = itostr(GetArg("-genproclimit", gen ? -1 : 0));
 
     if (pwalletMain || !GetArg("-mineraddress", "").empty())
-        GenerateBitcoins(GetBoolArg("-gen", false), pwalletMain, GetArg("-genproclimit", 0));
+        GenerateBitcoins(gen || VERUS_MINTBLOCKS, pwalletMain, GetArg("-genproclimit", gen ? -1 : 0));
  #else
-    GenerateBitcoins(GetBoolArg("-gen", false), GetArg("-genproclimit", 0));
+    GenerateBitcoins(gen, GetArg("-genproclimit", -1));
  #endif
 #endif
+ 
+    // Monitor the chain every minute, and alert if we get blocks much quicker or slower than expected.
+    CScheduler::Function f = boost::bind(&PartitionCheck, &IsInitialBlockDownload,
+                                         boost::ref(cs_main), boost::cref(pindexBestHeader));
+    scheduler.scheduleEvery(f, 60);
 
     // ********************************************************* Step 11: finished
 

@@ -854,7 +854,7 @@ int main(int argc, char * argv[])
     if ( argc > offset + 6 )
         decay = (long long)atof(argv[offset + 6]);
     rpcport = 1 + komodo_calcport(argv[offset + 1],supply,endsubsidy,reward,halving,decay,commission,staked,cc);
-    printf("./komodod -ac_name=%s -ac_cc=%u -ac_supply=%llu -ac_end=%llu -ac_reward=%llu -ac_halving=%llu -ac_decay=%llu & # rpcport %u\n[",argv[offset + 1],cc,(long long)supply,(long long)endsubsidy,(long long)reward,(long long)halving,(long long)decay,rpcport);
+    printf("./verusd -ac_name=%s -ac_cc=%u -ac_supply=%llu -ac_end=%llu -ac_reward=%llu -ac_halving=%llu -ac_decay=%llu & # rpcport %u\n[",argv[offset + 1],cc,(long long)supply,(long long)endsubsidy,(long long)reward,(long long)halving,(long long)decay,rpcport);
     if ( allocated != 0 )
     {
         char name[64],newname[64];
@@ -872,7 +872,7 @@ int main(int argc, char * argv[])
                 {
                     if ( jsonflag == 0 )
                     {
-                        printf("./komodod -ac_name=%s -ac_cc=%u -ac_supply=%llu -ac_end=%llu -ac_reward=%llu -ac_halving=%llu -ac_decay=%llu & # rpcport %u\n",newname,cc,(long long)supply+j,(long long)endsubsidy,(long long)reward,(long long)halving,(long long)decay,rpcport);
+                        printf("./verusd -ac_name=%s -ac_cc=%u -ac_supply=%llu -ac_end=%llu -ac_reward=%llu -ac_halving=%llu -ac_decay=%llu & # rpcport %u\n",newname,cc,(long long)supply+j,(long long)endsubsidy,(long long)reward,(long long)halving,(long long)decay,rpcport);
                     }
                     else
                     {

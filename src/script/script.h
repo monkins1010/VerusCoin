@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_SCRIPT_SCRIPT_H
 #define BITCOIN_SCRIPT_SCRIPT_H
@@ -17,12 +17,18 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include "uint256.h"
 
 #define OPRETTYPE_TIMELOCK 1
 #define OPRETTYPE_STAKEPARAMS 2
 #define OPRETTYPE_STAKECHEAT 3
+#define OPRETTYPE_OBJECT 4
+#define OPRETTYPE_OBJECTARR 5
 
-static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 520; // bytes
+class CCurrencyState;
+
+static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 1024; // bytes
+static const unsigned int MAX_SCRIPT_ELEMENT_SIZE_PRE_PBAAS = 520;
 
 // Max size of pushdata in a CC sig in bytes
 static const unsigned int MAX_SCRIPT_CRYPTOCONDITION_FULFILLMENT_SIZE = 2048;
@@ -362,6 +368,7 @@ private:
 };
 
 typedef prevector<28, unsigned char> CScriptBase;
+class COptCCParams;
 
 /** Serialized script, used inside transaction inputs and outputs */
 class CScript : public CScriptBase
@@ -581,11 +588,34 @@ public:
     bool IsOpReturn() const { return size() > 0 && (*this)[0] == OP_RETURN; }
     bool GetOpretData(std::vector<std::vector<unsigned char>>& vData) const;
 
-    bool IsPayToCryptoCondition(CScript *ccSubScript, std::vector<std::vector<unsigned char>>& vSolutions) const;
+    bool IsPayToCryptoCondition(COptCCParams &ccParams) const;
+    bool IsPayToCryptoCondition(CScript *ccSubScript, std::vector<std::vector<unsigned char>> &vParams, COptCCParams &optParams) const;
+    bool IsPayToCryptoCondition(CScript *ccSubScript, std::vector<std::vector<unsigned char>> &vParams) const;
     bool IsPayToCryptoCondition(CScript *ccSubScript) const;
+    bool IsPayToCryptoCondition(uint32_t *ecode) const;
     bool IsPayToCryptoCondition() const;
+    CScript &ReplaceCCParams(const COptCCParams &params);
+
+    int64_t ReserveOutValue() const;
+    int64_t ReserveOutValue(COptCCParams &p) const;
+    bool SetReserveOutValue(int64_t newValue);
+
     bool IsCoinImport() const;
     bool MayAcceptCryptoCondition() const;
+    bool MayAcceptCryptoCondition(int evalCode) const;
+    bool IsInstantSpend() const;
+
+    // insightexplorer, there may be more script types in the future
+    enum ScriptType : int {
+        UNKNOWN = 0,
+        P2PKH = 1,  // the same index value is used for all types that can have destinations represented by public key hash
+        P2PK = 1,
+        P2CC = 1,
+        P2SH = 2,
+    };
+
+    ScriptType GetType() const;
+    uint160 AddressHash() const;
 
     /** Called by IsStandardTx and P2SH/BIP62 VerifyScript (which makes it consensus-critical). */
     bool IsPushOnly() const;
@@ -614,6 +644,15 @@ public:
         // The default std::vector::clear() does not release memory.
         CScriptBase().swap(*this);
     }
+};
+
+class CReserveScript
+{
+public:
+    CScript reserveScript;
+    virtual void KeepScript() {}
+    CReserveScript() {}
+    virtual ~CReserveScript() {}
 };
 
 #endif // BITCOIN_SCRIPT_SCRIPT_H

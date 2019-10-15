@@ -1,7 +1,7 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "amount.h"
 #include "chainparams.h"
@@ -24,10 +24,13 @@
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
+#include "pbaas/pbaas.h"
+#include "pbaas/notarization.h"
 
 #include <stdint.h>
 
 #include <boost/assign/list_of.hpp>
+#include <boost/shared_ptr.hpp>
 
 #include <univalue.h>
 
@@ -37,6 +40,7 @@ extern int32_t ASSETCHAINS_ALGO, ASSETCHAINS_EQUIHASH, ASSETCHAINS_LWMAPOS;
 extern uint64_t ASSETCHAINS_STAKED;
 extern int32_t KOMODO_MININGTHREADS;
 extern bool VERUS_MINTBLOCKS;
+extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
 arith_uint256 komodo_PoWtarget(int32_t *percPoSp,arith_uint256 target,int32_t height,int32_t goalperc);
 
 /**
@@ -198,7 +202,7 @@ UniValue generate(const UniValue& params, bool fHelp)
             throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Wallet disabled and -mineraddress not set");
         }
 #else
-        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "komodod compiled without wallet and -mineraddress not set");
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "verusd compiled without wallet and -mineraddress not set");
 #endif
     }
     if (!Params().MineBlocksOnDemand())
@@ -208,9 +212,13 @@ UniValue generate(const UniValue& params, bool fHelp)
     int nHeightEnd = 0;
     int nHeight = 0;
     int nGenerate = params[0].get_int();
-#ifdef ENABLE_WALLET
+
     CReserveKey reservekey(pwalletMain);
-#endif
+    CPubKey pubKey;
+
+    //throw an error if no script was provided
+    if (!reservekey.GetReservedKey(pubKey))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available (mining requires a wallet or -mineraddress)");
 
     {   // Don't keep cs_main locked
         LOCK(cs_main);
@@ -220,8 +228,8 @@ UniValue generate(const UniValue& params, bool fHelp)
     }
     unsigned int nExtraNonce = 0;
     UniValue blockHashes(UniValue::VARR);
-    unsigned int n = Params().EquihashN();
-    unsigned int k = Params().EquihashK();
+    unsigned int n = Params().GetConsensus().EquihashN();
+    unsigned int k = Params().GetConsensus().EquihashK();
     uint64_t lastTime = 0;
     while (nHeight < nHeightEnd)
     {
@@ -230,12 +238,12 @@ UniValue generate(const UniValue& params, bool fHelp)
         lastTime = GetTime();
 
 #ifdef ENABLE_WALLET
-        std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlockWithKey(reservekey,nHeight,KOMODO_MAXGPUCOUNT));
+        std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlockWithKey(reservekey, nHeight, KOMODO_MAXGPUCOUNT));
 #else
         std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlockWithKey());
 #endif
         if (!pblocktemplate.get())
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Wallet keypool empty");
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Couldn't create new block");
         CBlock *pblock = &pblocktemplate->block;
         {
             LOCK(cs_main);
@@ -283,14 +291,16 @@ UniValue generate(const UniValue& params, bool fHelp)
         }
 endloop:
         CValidationState state;
-        if (!ProcessNewBlock(1,chainActive.LastTip()->GetHeight()+1,state, NULL, pblock, true, NULL))
+        if (!ProcessNewBlock(1, chainActive.LastTip()->GetHeight()+1, state, Params(), NULL, pblock, true, NULL))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "ProcessNewBlock, block not accepted");
         ++nHeight;
         blockHashes.push_back(pblock->GetHash().GetHex());
+
+        //mark script as important because it was used at least for one coinbase output
+        reservekey.KeepKey();
     }
     return blockHashes;
 }
-
 
 UniValue setgenerate(const UniValue& params, bool fHelp)
 {
@@ -322,7 +332,7 @@ UniValue setgenerate(const UniValue& params, bool fHelp)
             throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Wallet disabled and -mineraddress not set");
         }
 #else
-        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "komodod compiled without wallet and -mineraddress not set");
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "verusd compiled without wallet and -mineraddress not set");
 #endif
     }
     if (Params().MineBlocksOnDemand())
@@ -332,26 +342,35 @@ UniValue setgenerate(const UniValue& params, bool fHelp)
     if (params.size() > 0)
         fGenerate = params[0].get_bool();
 
-    int nGenProcLimit = GetArg("-genproclimit", -1);;
+    int nGenProcLimit = GetArg("-genproclimit", -1);
+    int gpl = -1;
     if (params.size() > 1)
     {
-        nGenProcLimit = params[1].get_int();
-        //if (nGenProcLimit == 0)
-        //    fGenerate = false;
+        gpl = params[1].get_int();
+        if (gpl != 0)
+        {
+            nGenProcLimit = gpl;
+        }
     }
-
-    if (fGenerate && !nGenProcLimit)
+    else
     {
         VERUS_MINTBLOCKS = 1;
-        fGenerate = GetBoolArg("-gen", false);
-        nGenProcLimit = KOMODO_MININGTHREADS;
+        KOMODO_MININGTHREADS = -1;
+    }
+
+    if (fGenerate && !gpl && params.size() > 1)
+    {
+        VERUS_MINTBLOCKS = 1;
     }
     else if (!fGenerate)
     {
         VERUS_MINTBLOCKS = 0;
         KOMODO_MININGTHREADS = 0;
     }
-    else KOMODO_MININGTHREADS = (int32_t)nGenProcLimit;
+    else
+    {
+        KOMODO_MININGTHREADS = (int32_t)nGenProcLimit;
+    }
 
     mapArgs["-gen"] = (fGenerate ? "1" : "0");
     mapArgs ["-genproclimit"] = itostr(KOMODO_MININGTHREADS);
@@ -365,7 +384,6 @@ UniValue setgenerate(const UniValue& params, bool fHelp)
     return NullUniValue;
 }
 #endif
-
 
 UniValue getmininginfo(const UniValue& params, bool fHelp)
 {
@@ -418,7 +436,21 @@ UniValue getmininginfo(const UniValue& params, bool fHelp)
     obj.push_back(Pair("chain",            Params().NetworkIDString()));
 #ifdef ENABLE_MINING
     obj.push_back(Pair("staking",          VERUS_MINTBLOCKS));
-    obj.push_back(Pair("generate",         GetBoolArg("-gen", false)));
+    bool mining = GetBoolArg("-gen", false);
+    auto chains = ConnectedChains.GetMergeMinedChains();
+    bool mergeMining = mining && ((!IsVerusActive() && ConnectedChains.IsVerusPBaaSAvailable()) || (IsVerusActive() && chains.size()));
+    int numChains = mergeMining ? (IsVerusActive() ? chains.size() + 1 : 1) : 0;
+    obj.push_back(Pair("generate",         mining));
+    obj.push_back(Pair("mergemining",      numChains));
+    if (chains.size())
+    {
+        UniValue chainNames(UniValue::VARR);
+        for (auto chain : chains)
+        {
+            chainNames.push_back(chain.name);
+        }
+        obj.push_back(Pair("mergeminedchains", chainNames));
+    }
     obj.push_back(Pair("numthreads",       (int64_t)KOMODO_MININGTHREADS));
 #endif
     return obj;
@@ -548,14 +580,16 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Wallet disabled and -mineraddress not set");
         }
 #else
-        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "komodod compiled without wallet and -mineraddress not set");
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "verusd compiled without wallet and -mineraddress not set");
 #endif
     }
 
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
+
     // TODO: Re-enable coinbasevalue once a specification has been written
     bool coinbasetxn = true;
+
     if (params.size() > 0)
     {
         const UniValue& oparam = params[0].get_obj();
@@ -599,7 +633,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             if (block.hashPrevBlock != pindexPrev->GetBlockHash())
                 return "inconclusive-not-best-prevblk";
             CValidationState state;
-            TestBlockValidity(state, block, pindexPrev, false, true);
+            TestBlockValidity(state, Params(), block, pindexPrev, false, true);
             return BIP22ValidationResult(state);
         }
     }
@@ -614,42 +648,11 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     }
     if (Params().MiningRequiresPeers() && (IsNotInSync() || fvNodesEmpty))
     {
-        /*
-        int loops = 0, blockDiff = 0, newDiff = 0;
-        const int delay = 15;
-        do {
-            if (fvNodesEmpty)
-            {
-                MilliSleep(1000 + rand() % 4000);
-                LOCK(cs_vNodes);
-                fvNodesEmpty = vNodes.empty();
-                loops = 0;
-                blockDiff = 0;
-            }
-            if ((newDiff = IsNotInSync()) > 1)
-            {
-                if (blockDiff != newDiff)
-                {
-                    blockDiff = newDiff;
-                }
-                else
-                {
-                    if (++loops <= delay)
-                    {
-                        MilliSleep(1000);
-                    }
-                    else break;
-                }
-            }
-        } while (fvNodesEmpty || IsNotInSync());
-        if (loops > delay)
-            throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Cannot get a block template while no peers are connected or chain not in sync!");
-        */
         throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Cannot get a block template while no peers are connected or chain not in sync!");
     }
 
     //if (IsInitialBlockDownload())
-     //   throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Zcash is downloading blocks...");
+    //   throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Zcash is downloading blocks...");
 
     static unsigned int nTransactionsUpdatedLast;
 
@@ -726,10 +729,25 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
 #else
         pblocktemplate = CreateNewBlockWithKey();
 #endif
+
+        /* keep Zcash script-based approach for reference
+        boost::shared_ptr<CReserveScript> coinbaseScript;
+        GetMainSignals().ScriptForMining(coinbaseScript);
+
+        // Throw an error if no script was provided
+        if (!coinbaseScript->reserveScript.size())
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available (mining requires a wallet or -mineraddress)");
+
+        pblocktemplate = CreateNewBlock(Params(), coinbaseScript->reserveScript);
+        */
+
         if (!pblocktemplate)
             throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory or no available utxo for staking");
 
-        // Need to update only after we know CreateNewBlockWithKey succeeded
+        // Mark script as important because it was used at least for one coinbase output
+        //coinbaseScript->KeepScript();
+
+        // Need to update only after we know CreateNewBlock succeeded
         pindexPrev = pindexPrevNew;
     }
     CBlock* pblock = &pblocktemplate->block; // pointer for convenience
@@ -878,9 +896,19 @@ UniValue submitblock(const UniValue& params, bool fHelp)
         );
 
     CBlock block;
-    //LogPrintStr("Hex block submission: " + params[0].get_str());
-    if (!DecodeHexBlk(block, params[0].get_str()))
+    try
+    {
+        //LogPrintStr("Hex block submission: " + params[0].get_str());
+        if (!DecodeHexBlk(block, params[0].get_str()))
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
+    }
+    catch (exception e)
+    {
+        printf("Exception: %s\n", e.what());
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
+    }
+
+    printf("Received block submission for %s\nhash: %s\n", ASSETCHAINS_SYMBOL, block.GetHash().GetHex().c_str());
 
     uint256 hash = block.GetHash();
     bool fBlockPresent = false;
@@ -891,6 +919,8 @@ UniValue submitblock(const UniValue& params, bool fHelp)
             CBlockIndex *pindex = mi->second;
             if (pindex)
             {
+                printf("Already have block %s\n", block.GetHash().GetHex().c_str());
+
                 if (pindex->IsValid(BLOCK_VALID_SCRIPTS))
                     return "duplicate";
                 if (pindex->nStatus & BLOCK_FAILED_MASK)
@@ -903,10 +933,20 @@ UniValue submitblock(const UniValue& params, bool fHelp)
 
     CValidationState state;
     submitblock_StateCatcher sc(block.GetHash());
-    RegisterValidationInterface(&sc);
-    //printf("submitblock, height=%d, coinbase sequence: %d, scriptSig: %s\n", chainActive.LastTip()->GetHeight()+1, block.vtx[0].vin[0].nSequence, block.vtx[0].vin[0].scriptSig.ToString().c_str());
-    bool fAccepted = ProcessNewBlock(1,chainActive.LastTip()->GetHeight()+1,state, NULL, &block, true, NULL);
-    UnregisterValidationInterface(&sc);
+    bool fAccepted;
+    CCriticalSection cs_blocksubmission;
+    {
+        LOCK(cs_blocksubmission);
+        RegisterValidationInterface(&sc);
+        //printf("submitblock, height=%d, coinbase sequence: %d, scriptSig: %s\n", chainActive.LastTip()->GetHeight()+1, block.vtx[0].vin[0].nSequence, block.vtx[0].vin[0].scriptSig.ToString().c_str());
+        fAccepted = ProcessNewBlock(1,chainActive.LastTip()->GetHeight()+1, state, Params(), NULL, &block, true, NULL);
+        UnregisterValidationInterface(&sc);
+    }
+    if (fBlockPresent || !fAccepted || !sc.found)
+    {
+        //printf("Block was not accepted %s\n", state.GetRejectReason().c_str());
+        ConnectedChains.lastSubmissionFailed = true;
+    }
     if (fBlockPresent)
     {
         if (fAccepted && !sc.found)

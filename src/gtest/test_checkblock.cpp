@@ -3,6 +3,7 @@
 
 #include "consensus/validation.h"
 #include "main.h"
+#include "utiltest.h"
 #include "zcash/Proof.hpp"
 
 class MockCValidationState : public CValidationState {
@@ -31,7 +32,7 @@ TEST(CheckBlock, VersionTooLow) {
 
     MockCValidationState state;
     EXPECT_CALL(state, DoS(100, false, REJECT_INVALID, "version-too-low", false)).Times(1);
-    EXPECT_FALSE(CheckBlock(&futureblock,0,0,block, state, verifier, false, false));
+    EXPECT_FALSE(CheckBlock(&futureblock, 0, 0, block, state, Params(), verifier, false, false));
 }
 
 
@@ -64,7 +65,7 @@ TEST(CheckBlock, BlockSproutRejectsBadVersion) {
     auto verifier = libzcash::ProofVerifier::Strict();
 
     EXPECT_CALL(state, DoS(100, false, REJECT_INVALID, "bad-txns-version-too-low", false)).Times(1);
-    EXPECT_FALSE(CheckBlock(block, state, verifier, false, false));
+    EXPECT_FALSE(CheckBlock(block, state, Params(), verifier, false, false));
 }
 
 
@@ -76,8 +77,7 @@ protected:
 
     virtual void TearDown() {
         // Revert to test default. No-op on mainnet params.
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_SAPLING, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_OVERWINTER, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+        RegtestDeactivateSapling();
     }
 
     // Returns a valid but empty mutable transaction at block height 1.
@@ -118,7 +118,7 @@ protected:
 
         // We now expect this to be a valid block.
         MockCValidationState state;
-        EXPECT_TRUE(ContextualCheckBlock(block, state, &indexPrev));
+        EXPECT_TRUE(ContextualCheckBlock(block, state, Params(), &indexPrev));
     }
 
     // Expects a height-1 block containing a given transaction to fail
@@ -136,7 +136,7 @@ protected:
         // We now expect this to be an invalid block, for the given reason.
         MockCValidationState state;
         EXPECT_CALL(state, DoS(level, false, REJECT_INVALID, reason, false)).Times(1);
-        EXPECT_FALSE(ContextualCheckBlock(block, state, &indexPrev));
+        EXPECT_FALSE(ContextualCheckBlock(block, state, Params(), &indexPrev));
     }
 
 };
@@ -153,7 +153,7 @@ TEST_F(ContextualCheckBlockTest, BadCoinbaseHeight) {
 
     // Treating block as genesis should pass
     MockCValidationState state;
-    EXPECT_TRUE(ContextualCheckBlock(block, state, NULL));
+    EXPECT_TRUE(ContextualCheckBlock(block, state, Params(), NULL));
 
     // Give the transaction a Founder's Reward vout
     mtx.vout.push_back(CTxOut(
@@ -167,20 +167,20 @@ TEST_F(ContextualCheckBlockTest, BadCoinbaseHeight) {
     CBlockIndex indexPrev {prev};
     indexPrev.SetHeight(0);
     EXPECT_CALL(state, DoS(100, false, REJECT_INVALID, "bad-cb-height", false)).Times(1);
-    EXPECT_FALSE(ContextualCheckBlock(block, state, &indexPrev));
+    EXPECT_FALSE(ContextualCheckBlock(block, state, Params(), &indexPrev));
 
     // Setting to an incorrect height should fail
     mtx.vin[0].scriptSig = CScript() << 2 << OP_0;
     CTransaction tx3 {mtx};
     block.vtx[0] = tx3;
     EXPECT_CALL(state, DoS(100, false, REJECT_INVALID, "bad-cb-height", false)).Times(1);
-    EXPECT_FALSE(ContextualCheckBlock(block, state, &indexPrev));
+    EXPECT_FALSE(ContextualCheckBlock(block, state, Params(), &indexPrev));
 
     // After correcting the scriptSig, should pass
     mtx.vin[0].scriptSig = CScript() << 1 << OP_0;
     CTransaction tx4 {mtx};
     block.vtx[0] = tx4;
-    EXPECT_TRUE(ContextualCheckBlock(block, state, &indexPrev));
+    EXPECT_TRUE(ContextualCheckBlock(block, state, Params(), &indexPrev));
 }
 
 // TEST PLAN: first, check that each ruleset accepts its own transaction type.
@@ -291,7 +291,7 @@ TEST_F(ContextualCheckBlockTest, BlockOverwinterRulesRejectOtherTx) {
 
     {
         SCOPED_TRACE("BlockOverwinterRulesRejectSaplingTx");
-        ExpectInvalidBlockFromTx(CTransaction(mtx), 100, "bad-overwinter-tx-version-group-id");
+        ExpectInvalidBlockFromTx(CTransaction(mtx), 0, "bad-overwinter-tx-version-group-id");
     }
 }
 
@@ -319,6 +319,6 @@ TEST_F(ContextualCheckBlockTest, BlockSaplingRulesRejectOtherTx) {
 
     {
         SCOPED_TRACE("BlockSaplingRulesRejectOverwinterTx");
-        ExpectInvalidBlockFromTx(CTransaction(mtx), 100, "bad-sapling-tx-version-group-id");
+        ExpectInvalidBlockFromTx(CTransaction(mtx), 0, "bad-sapling-tx-version-group-id");
     }
 }

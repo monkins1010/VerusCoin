@@ -99,7 +99,7 @@ TEST_F(TestCoinImport, testProcessImportThroughPipeline)
 
     // Now disconnect the block
     CValidationState invalstate;
-    if (!InvalidateBlock(invalstate, chainActive.Tip())) {
+    if (!InvalidateBlock(invalstate, Params(), chainActive.Tip())) {
         FAIL() << invalstate.GetRejectReason();
     }
     ASSERT_FALSE(pcoinsTip->HaveCoins(tx.GetHash()));
@@ -131,7 +131,7 @@ TEST_F(TestCoinImport, testImportTombstone)
 
     // Now disconnect the block
     CValidationState invalstate;
-    if (!InvalidateBlock(invalstate, chainActive.Tip())) {
+    if (!InvalidateBlock(invalstate, Params(), chainActive.Tip())) {
         FAIL() << invalstate.GetRejectReason();
     }
     // Tombstone should be gone from utxo set

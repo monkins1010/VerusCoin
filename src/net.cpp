@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #if defined(HAVE_CONFIG_H)
 #include "config/bitcoin-config.h"
@@ -48,7 +48,7 @@
 using namespace std;
 
 namespace {
-    const int MAX_OUTBOUND_CONNECTIONS = 4;
+    const int MAX_OUTBOUND_CONNECTIONS = 5;
     const int MAX_INBOUND_FROMIP = 3;
 
     struct ListenSocket {
@@ -63,6 +63,8 @@ namespace {
 // Global state variables
 //
 extern uint16_t ASSETCHAINS_P2PPORT;
+extern std::string NOTARY_PUBKEY;
+extern int32_t USE_EXTERNAL_PUBKEY;
 
 bool fDiscover = true;
 bool fListen = true;
@@ -439,8 +441,26 @@ void CNode::PushVersion()
         LogPrint("net", "send version message: version %d, blocks=%d, us=%s, them=%s, peer=%d\n", PROTOCOL_VERSION, nBestHeight, addrMe.ToString(), addrYou.ToString(), id);
     else
         LogPrint("net", "send version message: version %d, blocks=%d, us=%s, peer=%d\n", PROTOCOL_VERSION, nBestHeight, addrMe.ToString(), id);
-    PushMessage("version", PROTOCOL_VERSION, nLocalServices, nTime, addrYou, addrMe,
-                nLocalHostNonce, strSubVersion, nBestHeight, true);
+
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nBestHeight + 1) >= CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3)
+    {
+        CKeyID nodePaymentAddress;
+        if (USE_EXTERNAL_PUBKEY)
+        {
+            CPubKey pubKey = CPubKey(ParseHex(NOTARY_PUBKEY));
+            if (pubKey.IsFullyValid())
+            {
+                nodePaymentAddress = pubKey.GetID();
+            }
+            LogPrint("net", "send PBaaS node payment pubkey hash -- pubkey: %s, hash: %s\n", NOTARY_PUBKEY, nodePaymentAddress.ToString());
+        }
+        PushMessage("version", PROTOCOL_VERSION > MIN_PBAAS_VERSION ? PROTOCOL_VERSION : MIN_PBAAS_VERSION, 
+                    nLocalServices, nTime, addrYou, addrMe, nLocalHostNonce, nodePaymentAddress, strSubVersion, nBestHeight, true);
+    }
+    else
+    {
+        PushMessage("version", PROTOCOL_VERSION, nLocalServices, nTime, addrYou, addrMe, nLocalHostNonce, strSubVersion, nBestHeight, true);
+    }
 }
 
 

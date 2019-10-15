@@ -1,7 +1,7 @@
 Source: VerusCoin
 Section: utils
 Priority: optional
-Maintainer: VerusCoin <team@z.cash>
+Maintainer: VerusCoin <info@veruscoin.io>
 Homepage: https://veruscoin.io
 Build-Depends: autoconf, automake, bsdmainutils, build-essential,
  git, g++-multilib, libc6-dev, libtool,

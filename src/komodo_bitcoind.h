@@ -628,7 +628,7 @@ int32_t komodo_isPoS(CBlock *pblock)
     return(0);
 }
 
-void komodo_disconnect(CBlockIndex *pindex,CBlock& block)
+void komodo_disconnect(const CBlockIndex *pindex, const CBlock& block)
 {
     char symbol[KOMODO_ASSETCHAIN_MAXLEN],dest[KOMODO_ASSETCHAIN_MAXLEN]; struct komodo_state *sp;
     //fprintf(stderr,"disconnect ht.%d\n",pindex->GetHeight());
@@ -1477,8 +1477,6 @@ bool verusCheckPOSBlock(int32_t slowflag, CBlock *pblock, int32_t height)
     if (!pblock->IsVerusPOSBlock())
     {
         printf("%s, height %d not POS block\n", pblock->nNonce.GetHex().c_str(), height);
-        //pblock->nNonce.SetPOSTarget(pblock->nNonce.GetPOSTarget());
-        //printf("%s after setting POS target\n", pblock->nNonce.GetHex().c_str());
         return false;
     }
 
@@ -1497,6 +1495,7 @@ bool verusCheckPOSBlock(int32_t slowflag, CBlock *pblock, int32_t height)
             bool validHash = (value != 0);
             bool enablePOSNonce = CPOSNonce::NewPOSActive(height);
             bool newPOSEnforcement = enablePOSNonce && (Params().GetConsensus().vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight <= height);
+            bool supportInstantSpend = CConstVerusSolutionVector::activationHeight.ActiveVersion(height) >= CActivationHeight::SOLUTION_VERUSV3;
             uint256 rawHash;
             arith_uint256 posHash;
 
@@ -1517,7 +1516,7 @@ bool verusCheckPOSBlock(int32_t slowflag, CBlock *pblock, int32_t height)
                     for (int i = 0; validHash && i < pblock->vtx[0].vout.size(); i++)
                     {
                         validHash = false;
-                        if (ValidateMatchingStake(pblock->vtx[0], i, pblock->vtx[txn_count-1], validHash) && !validHash)
+                        if (pblock->vtx[0].vout[i].scriptPubKey.IsInstantSpend() || ValidateMatchingStake(pblock->vtx[0], i, pblock->vtx[txn_count-1], validHash) && !validHash)
                         {
                             if ((p.prevHash == pblock->hashPrevBlock) && (int32_t)p.blkHeight == height)
                             {
@@ -1602,7 +1601,7 @@ bool verusCheckPOSBlock(int32_t slowflag, CBlock *pblock, int32_t height)
                                 //if (nonce != pblock->nNonce)
                                 //    printf("Mismatched nNonce: %s\nblkHash: %s, height: %d\n", nonce.GetHex().c_str(), pblock->GetHash().GetHex().c_str(), height);
 
-                                if (CPOSNonce::NewNonceActive(height) && !nonce.CheckPOSEntropy(pastHash, txid, voutNum))
+                                if (CPOSNonce::NewNonceActive(height) && !nonce.CheckPOSEntropy(pastHash, txid, voutNum, pblock->nVersion))
                                 {
                                     fprintf(stderr,"ERROR: invalid PoS block %s - nonce entropy corrupted or forged\n",blkHash.ToString().c_str());
                                     nonceOK = false;
@@ -1641,12 +1640,13 @@ bool verusCheckPOSBlock(int32_t slowflag, CBlock *pblock, int32_t height)
                                                 {
                                                     txnouttype tp;
                                                     std::vector<std::vector<unsigned char>> vvch = std::vector<std::vector<unsigned char>>();
-                                                    // solve all outputs to check that destinations all go only to the pk
+                                                    // solve all outputs to check that non-instantspend destinations all go only to the pk
                                                     // specified in the stake params
-                                                    if (!Solver(vout.scriptPubKey, tp, vvch) || 
+                                                    if ((!supportInstantSpend || !vout.scriptPubKey.IsInstantSpend()) &&
+                                                        (!Solver(vout.scriptPubKey, tp, vvch) || 
                                                         tp != TX_CRYPTOCONDITION || 
                                                         vvch.size() < 2 || 
-                                                        p.pk != CPubKey(vvch[1]))
+                                                        p.pk != CPubKey(vvch[0])))
                                                     {
                                                         isPOS = false;
                                                         break;
@@ -1709,7 +1709,7 @@ int32_t komodo_checkPOW(int32_t slowflag,CBlock *pblock,int32_t height)
     uint256 hash; arith_uint256 bnTarget,bhash; bool fNegative,fOverflow; uint8_t *script,pubkey33[33],pubkeys[64][33]; int32_t i,possible,PoSperc,is_PoSblock=0,n,failed = 0,notaryid = -1; int64_t checktoshis,value; CBlockIndex *pprev;
     if ( KOMODO_TEST_ASSETCHAIN_SKIP_POW == 0 && Params().NetworkIDString() == "regtest" )
         KOMODO_TEST_ASSETCHAIN_SKIP_POW = 1;
-    if ( !CheckEquihashSolution(pblock, Params()) )
+    if ( !CheckEquihashSolution(pblock, Params().GetConsensus()) )
     {
         fprintf(stderr,"komodo_checkPOW slowflag.%d ht.%d CheckEquihashSolution failed\n",slowflag,height);
         return(-1);
@@ -1819,7 +1819,7 @@ int64_t komodo_newcoins(int64_t *zfundsp,int32_t nHeight,CBlock *pblock)
     for (i=0; i<n; i++)
     {
         CTransaction vintx,&tx = pblock->vtx[i];
-        zfunds += (tx.GetValueOut() - tx.GetShieldedValueIn());
+        zfunds += (tx.GetShieldedValueOut() - tx.GetShieldedValueIn());
         if ( (m= tx.vin.size()) > 0 )
         {
             for (j=0; j<m; j++)

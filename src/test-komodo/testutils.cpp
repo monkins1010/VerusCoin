@@ -62,7 +62,7 @@ void setupChain()
     CCoinsViewDB *pcoinsdbview = new CCoinsViewDB(1 << 23, true);
     pcoinsTip = new CCoinsViewCache(pcoinsdbview);
     pnotarisations = new NotarisationDB(1 << 20, true);
-    InitBlockIndex();
+    InitBlockIndex(Params());
 }
 
 
@@ -78,7 +78,7 @@ void generateBlock(CBlock *block)
     try {
         UniValue out = generate(params, false);
         blockId.SetHex(out[0].getValStr());
-        if (block) ASSERT_TRUE(ReadBlockFromDisk(*block, mapBlockIndex[blockId], false));
+        if (block) ASSERT_TRUE(ReadBlockFromDisk(*block, mapBlockIndex[blockId], Params().GetConsensus()));
     } catch (const UniValue& e) {
         FAIL() << "failed to create block: " << e.write().data();
     }

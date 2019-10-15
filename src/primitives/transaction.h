@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_PRIMITIVES_TRANSACTION_H
 #define BITCOIN_PRIMITIVES_TRANSACTION_H
@@ -16,6 +16,7 @@
 #include "consensus/consensus.h"
 #include "hash.h"
 #include "nonce.h"
+#include "solutiondata.h"
 
 #ifndef __APPLE__
 #include <stdint.h>
@@ -31,6 +32,8 @@
 #include "zcash/Proof.hpp"
 
 extern uint32_t ASSETCHAINS_MAGIC;
+class CCurrencyState;
+
 
 // Overwinter transaction version
 static const int32_t OVERWINTER_TX_VERSION = 3;
@@ -480,6 +483,16 @@ public:
         return (nValue < GetDustThreshold(minRelayTxFee));
     }
 
+    CAmount ReserveOutValue() const
+    {
+        return scriptPubKey.ReserveOutValue();
+    }
+
+    bool SetReserveOutValue(CAmount newValue)
+    {
+        return scriptPubKey.SetReserveOutValue(newValue);
+    }
+
     friend bool operator==(const CTxOut& a, const CTxOut& b)
     {
         return (a.nValue == b.nValue && a.scriptPubKey == b.scriptPubKey);
@@ -563,7 +576,7 @@ public:
     const CAmount valueBalance;
     const std::vector<SpendDescription> vShieldedSpend;
     const std::vector<OutputDescription> vShieldedOutput;
-    const std::vector<JSDescription> vjoinsplit;
+    const std::vector<JSDescription> vJoinSplit;
     const uint256 joinSplitPubKey;
     const joinsplit_sig_t joinSplitSig = {{0}};
     const binding_sig_t bindingSig = {{0}};
@@ -620,8 +633,8 @@ public:
         }
         if (nVersion >= 2) {
             auto os = WithVersion(&s, static_cast<int>(header));
-            ::SerReadWrite(os, *const_cast<std::vector<JSDescription>*>(&vjoinsplit), ser_action);
-            if (vjoinsplit.size() > 0) {
+            ::SerReadWrite(os, *const_cast<std::vector<JSDescription>*>(&vJoinSplit), ser_action);
+            if (vJoinSplit.size() > 0) {
                 READWRITE(*const_cast<uint256*>(&joinSplitPubKey));
                 READWRITE(*const_cast<joinsplit_sig_t*>(&joinSplitSig));
             }
@@ -667,6 +680,12 @@ public:
 
     // Return sum of txouts, (negative valueBalance or zero) and JoinSplit vpub_old.
     CAmount GetValueOut() const;
+
+    // Value out of a transaction in reserve currency
+    CAmount GetReserveValueOut() const;
+
+    // Return sum of (negative valueBalance or zero) and JoinSplit vpub_old.
+    CAmount GetShieldedValueOut() const;
     // GetValueIn() is a method on CCoinsViewCache, because
     // inputs must be known to compute value in.
 
@@ -681,7 +700,8 @@ public:
 
     bool IsMint() const
     {
-        return IsCoinImport() || IsCoinBase();
+        // return IsCoinImport() || IsCoinBase();
+        return IsCoinBase();
     }
 
     bool IsCoinBase() const
@@ -693,7 +713,8 @@ public:
 
     bool IsCoinImport() const
     {
-        return (vin.size() == 1 && vin[0].prevout.n == 10e8);
+        // return (vin.size() == 1 && vin[0].prevout.n == 10e8);
+        return false; // we don't support "importing" coins this way
     }
 
     friend bool operator==(const CTransaction& a, const CTransaction& b)
@@ -709,25 +730,51 @@ public:
     // verus hash will be the same for a given txid, output number, block height, and blockhash of 100 blocks past
     static uint256 _GetVerusPOSHash(CPOSNonce *pNonce, const uint256 &txid, int32_t voutNum, int32_t height, const uint256 &pastHash, int64_t value)
     {
-        pNonce->SetPOSEntropy(pastHash, txid, voutNum);
-        CVerusHashWriter hashWriter  = CVerusHashWriter(SER_GETHASH, PROTOCOL_VERSION);
-
-        hashWriter << ASSETCHAINS_MAGIC;
-
-        // we only use the new style of POS hash after changeover and 100 blocks of enforced proper nonce updating
-        if (CPOSNonce::NewPOSActive(height))
+        if (CVerusSolutionVector::GetVersionByHeight(height) > 0)
         {
-            hashWriter << *pNonce;
-            hashWriter << height;
-            return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            pNonce->SetPOSEntropy(pastHash, txid, voutNum, CPOSNonce::VERUS_V2);
+            CVerusHashV2Writer hashWriter  = CVerusHashV2Writer(SER_GETHASH, PROTOCOL_VERSION);
+
+            hashWriter << ASSETCHAINS_MAGIC;
+
+            // we only use the new style of POS hash after changeover and 100 blocks of enforced proper nonce updating
+            if (CPOSNonce::NewPOSActive(height))
+            {
+                hashWriter << *pNonce;
+                hashWriter << height;
+                return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            }
+            else
+            {
+                hashWriter << pastHash;
+                hashWriter << height;
+                hashWriter << txid;
+                hashWriter << voutNum;
+                return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            }
         }
         else
         {
-            hashWriter << pastHash;
-            hashWriter << height;
-            hashWriter << txid;
-            hashWriter << voutNum;
-            return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            pNonce->SetPOSEntropy(pastHash, txid, voutNum, CPOSNonce::VERUS_V1);
+            CVerusHashWriter hashWriter  = CVerusHashWriter(SER_GETHASH, PROTOCOL_VERSION);
+
+            hashWriter << ASSETCHAINS_MAGIC;
+
+            // we only use the new style of POS hash after changeover and 100 blocks of enforced proper nonce updating
+            if (CPOSNonce::NewPOSActive(height))
+            {
+                hashWriter << *pNonce;
+                hashWriter << height;
+                return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            }
+            else
+            {
+                hashWriter << pastHash;
+                hashWriter << height;
+                hashWriter << txid;
+                hashWriter << voutNum;
+                return ArithToUint256(UintToArith256(hashWriter.GetHash()) / value);
+            }
         }
     }
 
@@ -758,7 +805,7 @@ struct CMutableTransaction
     CAmount valueBalance;
     std::vector<SpendDescription> vShieldedSpend;
     std::vector<OutputDescription> vShieldedOutput;
-    std::vector<JSDescription> vjoinsplit;
+    std::vector<JSDescription> vJoinSplit;
     uint256 joinSplitPubKey;
     CTransaction::joinsplit_sig_t joinSplitSig = {{0}};
     CTransaction::binding_sig_t bindingSig = {{0}};
@@ -814,8 +861,8 @@ struct CMutableTransaction
         }
         if (nVersion >= 2) {
             auto os = WithVersion(&s, static_cast<int>(header));
-            ::SerReadWrite(os, vjoinsplit, ser_action);
-            if (vjoinsplit.size() > 0) {
+            ::SerReadWrite(os, vJoinSplit, ser_action);
+            if (vJoinSplit.size() > 0) {
                 READWRITE(joinSplitPubKey);
                 READWRITE(joinSplitSig);
             }

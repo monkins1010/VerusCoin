@@ -1,3 +1,11 @@
+# Copyright (c) 2018-2019 The Verus developers
+# Copyright (c) 2017-2019 The Komodo developers
+# Copyright (c) 2016-2019 The Zcash developers
+# Copyright (c) 2013-2019 The Bitcoin Core developers
+# Copyright (c) 2013-2019 Bitcoin Developers
+# Distributed under the MIT software license, see the accompanying
+# file COPYING or https://www.opensource.org/licenses/mit-license.php .
+
 DIST_SUBDIRS = secp256k1 univalue cryptoconditions
 
 AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(SAN_LDFLAGS) $(HARDENED_LDFLAGS)
@@ -79,10 +87,10 @@ LIBSNARK_CONFIG_FLAGS += PLATFORM=darwin
 endif
 
 $(LIBSNARK): $(wildcard snark/src/*)
-	$(AM_V_at) CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(LIBSNARK_CXXFLAGS)" $(MAKE) $(AM_MAKEFLAGS) -C snark/ DEPINST="$(LIBSNARK_DEPINST)" $(LIBSNARK_CONFIG_FLAGS) OPTFLAGS="-O2 -march=x86-64"
+	$(AM_V_at) CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(LIBSNARK_CXXFLAGS)" $(MAKE) $(AM_MAKEFLAGS) -C snark/ DEPINST="$(LIBSNARK_DEPINST)" $(LIBSNARK_CONFIG_FLAGS) OPTFLAGS="$(LIBSNARK_OPTFLAGS)"
 
 libsnark-tests: $(wildcard snark/src/*)
-	$(AM_V_at) CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(LIBSNARK_CXXFLAGS)" $(MAKE) $(AM_MAKEFLAGS) -C snark/ check DEPINST="$(LIBSNARK_DEPINST)" $(LIBSNARK_CONFIG_FLAGS) OPTFLAGS="-O2 -march=x86-64"
+	$(AM_V_at) CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(LIBSNARK_CXXFLAGS)" $(MAKE) $(AM_MAKEFLAGS) -C snark/ check DEPINST="$(LIBSNARK_DEPINST)" $(LIBSNARK_CONFIG_FLAGS) OPTFLAGS="$(LIBSNARK_OPTFLAGS)"
 
 $(LIBUNIVALUE): $(wildcard univalue/lib/*)
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F) OPTFLAGS="-O2 -march=x86-64 -g "
@@ -119,11 +127,11 @@ noinst_PROGRAMS =
 TESTS =
 
 #if BUILD_BITCOIND
-  bin_PROGRAMS += komodod
+  bin_PROGRAMS += verusd
 #endif
 
 if BUILD_BITCOIN_UTILS
-  bin_PROGRAMS += komodo-cli komodo-tx
+  bin_PROGRAMS += verus verus-tx
 endif
 if ENABLE_WALLET
   bin_PROGRAMS += wallet-utility
@@ -184,6 +192,7 @@ BITCOIN_CORE_H = \
   core_memusage.h \
   crypto/haraka.h \
   crypto/haraka_portable.h \
+  crypto/verus_clhash.h \
   crypto/verus_hash.h \
   deprecation.h \
   hash.h \
@@ -200,18 +209,24 @@ BITCOIN_CORE_H = \
   merkleblock.h \
   metrics.h \
   miner.h \
+  pbaasrpc.h \
+  mmr.h \
   mruset.h \
   net.h \
   netbase.h \
   noui.h \
-  paymentdisclosure.h \
-  paymentdisclosuredb.h \
+  pbaas/crosschainrpc.h \
+  pbaas/identity.h \
+  pbaas/notarization.h \
+  pbaas/pbaas.h \
+  pbaas/reserves.h \
   policy/fees.h \
   pow.h \
   prevector.h \
   primitives/block.h \
   primitives/transaction.h \
   primitives/nonce.h \
+  primitives/solutiondata.h \
   protocol.h \
   pubkey.h \
   random.h \
@@ -228,6 +243,7 @@ BITCOIN_CORE_H = \
   script/sign.h \
   script/standard.h \
   serialize.h \
+  spentindex.h \
   streams.h \
   support/allocators/secure.h \
   support/allocators/zeroafterfree.h \
@@ -237,6 +253,7 @@ BITCOIN_CORE_H = \
   sync.h \
   threadsafety.h \
   timedata.h \
+  timestampindex.h \
   tinyformat.h \
   torcontrol.h \
   transaction_builder.h \
@@ -249,14 +266,19 @@ BITCOIN_CORE_H = \
   util.h \
   utilmoneystr.h \
   utilstrencodings.h \
+  utiltest.h \
   utiltime.h \
   validationinterface.h \
   version.h \
+  wallet/asyncrpcoperation_common.h \
   wallet/asyncrpcoperation_mergetoaddress.h \
+  wallet/asyncrpcoperation_saplingmigration.h \
   wallet/asyncrpcoperation_sendmany.h \
   wallet/asyncrpcoperation_shieldcoinbase.h \
   wallet/crypter.h \
   wallet/db.h \
+  wallet/paymentdisclosure.h \
+  wallet/paymentdisclosuredb.h \
   wallet/rpcwallet.h \
   wallet/wallet.h \
   wallet/wallet_ismine.h \
@@ -316,6 +338,7 @@ libbitcoin_server_a_SOURCES = \
   crosschain.cpp \
   crypto/haraka.h \
   crypto/haraka_portable.h \
+  crypto/verus_clhash.h \
   crypto/verus_hash.h \
   crypto/verus_hash.cpp \
   deprecation.cpp \
@@ -330,14 +353,19 @@ libbitcoin_server_a_SOURCES = \
   net.cpp \
   noui.cpp \
   notarisationdb.cpp \
-  paymentdisclosure.cpp \
-  paymentdisclosuredb.cpp \
+  pbaas/crosschainrpc.cpp \
+  pbaas/identity.cpp \
+  pbaas/notarization.cpp \
+  pbaas/pbaas.cpp \
+  pbaas/reserves.cpp \
   policy/fees.cpp \
   pow.cpp \
+  primitives/solutiondata.cpp \
   rest.cpp \
   rpc/blockchain.cpp \
   rpc/crosschain.cpp \
   rpc/mining.cpp \
+  rpc/pbaasrpc.cpp \
   rpc/misc.cpp \
   rpc/net.cpp \
   rpc/rawtransaction.cpp \
@@ -374,18 +402,20 @@ endif
 libbitcoin_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libbitcoin_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_wallet_a_SOURCES = \
+  transaction_builder.cpp \
   utiltest.cpp \
   utiltest.h \
   zcbenchmarks.cpp \
   zcbenchmarks.h \
+  wallet/asyncrpcoperation_common.cpp \
   wallet/asyncrpcoperation_mergetoaddress.cpp \
+  wallet/asyncrpcoperation_saplingmigration.cpp \
   wallet/asyncrpcoperation_sendmany.cpp \
   wallet/asyncrpcoperation_shieldcoinbase.cpp \
   wallet/crypter.cpp \
   wallet/db.cpp \
-  paymentdisclosure.cpp \
-  paymentdisclosuredb.cpp \
-  transaction_builder.cpp \
+  wallet/paymentdisclosure.cpp \
+  wallet/paymentdisclosuredb.cpp \
   wallet/rpcdisclosure.cpp \
   wallet/rpcdump.cpp \
   cc/CCassetstx.cpp \
@@ -436,18 +466,22 @@ crypto_libbitcoin_crypto_a_SOURCES += \
 endif
 
 # Verus hash specific library - optimized
-crypto_libverus_crypto_a_CPPFLAGS = -O3 -Wint-conversion -march=x86-64 -msse4 -msse4.1 -msse4.2 -mssse3 -mavx -maes -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CPPFLAGS)
-crypto_libverus_crypto_a_CXXFLAGS = -O3 -Wint-conversion -march=x86-64 -msse4 -msse4.1 -msse4.2 -mssse3 -mavx -maes -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CXXFLAGS)
+crypto_libverus_crypto_a_CPPFLAGS = -O3 -Wint-conversion -march=x86-64 -mpclmul -msse4 -msse4.1 -msse4.2 -mssse3 -mavx -maes -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CPPFLAGS)
+crypto_libverus_crypto_a_CXXFLAGS = -O3 -Wint-conversion -march=x86-64 -mpclmul -msse4 -msse4.1 -msse4.2 -mssse3 -mavx -maes -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CXXFLAGS)
 crypto_libverus_crypto_a_SOURCES = \
   crypto/haraka.h \
-  crypto/haraka.c
+  crypto/haraka.c \
+  crypto/verus_clhash.h \
+  crypto/verus_clhash.cpp
 
 # Verus hash specific library - portable
 crypto_libverus_portable_crypto_a_CPPFLAGS = -O3 -Wint-conversion -march=x86-64 -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CPPFLAGS)
 crypto_libverus_portable_crypto_a_CXXFLAGS = -O3 -Wint-conversion -march=x86-64 -g -funroll-loops -fomit-frame-pointer -fPIC $(AM_CXXFLAGS)
 crypto_libverus_portable_crypto_a_SOURCES = \
   crypto/haraka_portable.h \
-  crypto/haraka_portable.c
+  crypto/haraka_portable.c \
+  crypto/verus_clhash.h \
+  crypto/verus_clhash_portable.cpp
 
 # common: shared between zcashd and non-server tools
 libbitcoin_common_a_CPPFLAGS = -fPIC $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
@@ -460,11 +494,13 @@ libbitcoin_common_a_SOURCES = \
   chainparams.cpp \
   coins.cpp \
   compressor.cpp \
+  consensus/params.cpp \
   consensus/upgrades.cpp \
   core_read.cpp \
   core_write.cpp \
   crypto/haraka.h \
   crypto/haraka_portable.h \
+  crypto/verus_clhash.h \
   crypto/verus_hash.h \
   crypto/verus_hash.cpp \
   hash.cpp \
@@ -477,6 +513,7 @@ libbitcoin_common_a_SOURCES = \
   primitives/block.cpp \
   primitives/transaction.cpp \
   primitives/nonce.cpp \
+  primitives/solutiondata.cpp \
   protocol.cpp \
   pubkey.cpp \
   scheduler.cpp \
@@ -489,6 +526,7 @@ libbitcoin_common_a_SOURCES = \
   script/standard.cpp \
   veruslaunch.cpp \
   transaction_builder.cpp \
+  utiltest.cpp \
   $(BITCOIN_CORE_H) \
   $(LIBZCASH_H)
 
@@ -532,16 +570,16 @@ nodist_libbitcoin_util_a_SOURCES = $(srcdir)/obj/build.h
 #
 
 # bitcoind binary #
-komodod_SOURCES = bitcoind.cpp
-komodod_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-komodod_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-komodod_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+verusd_SOURCES = bitcoind.cpp
+verusd_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+verusd_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+verusd_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-komodod_SOURCES += bitcoind-res.rc
+verusd_SOURCES += bitcoind-res.rc
 endif
 
-komodod_LDADD = \
+verusd_LDADD = \
   $(LIBBITCOIN_SERVER) \
   $(LIBBITCOIN_COMMON) \
   $(LIBUNIVALUE) \
@@ -559,10 +597,10 @@ komodod_LDADD = \
   $(LIBCRYPTOCONDITIONS)
 
 if ENABLE_WALLET
-komodod_LDADD += $(LIBBITCOIN_WALLET)
+verusd_LDADD += $(LIBBITCOIN_WALLET)
 endif
 
-komodod_LDADD += \
+verusd_LDADD += \
   $(BOOST_LIBS) \
   $(BDB_LIBS) \
   $(SSL_LIBS) \
@@ -577,14 +615,14 @@ komodod_LDADD += \
   $(LIBZCASH_LIBS)
 
 if ENABLE_PROTON
-komodod_LDADD += $(LIBBITCOIN_PROTON) $(PROTON_LIBS)
+verusd_LDADD += $(LIBBITCOIN_PROTON) $(PROTON_LIBS)
 endif
 
 # bitcoin-cli binary #
-komodo_cli_SOURCES = bitcoin-cli.cpp
-komodo_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
-komodo_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-komodo_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+verus_SOURCES = bitcoin-cli.cpp
+verus_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
+verus_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+verus_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 # wallet-utility binary #
 if ENABLE_WALLET
@@ -595,10 +633,10 @@ wallet_utility_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 endif
 
 if TARGET_WINDOWS
-komodo_cli_SOURCES += bitcoin-cli-res.rc
+verus_SOURCES += bitcoin-cli-res.rc
 endif
 
-komodo_cli_LDADD = \
+verus_LDADD = \
 	$(LIBBITCOIN_CLI) \
 	$(LIBUNIVALUE) \
 	$(LIBBITCOIN_UTIL) \
@@ -608,8 +646,8 @@ komodo_cli_LDADD = \
 	$(EVENT_LIBS) \
 	$(LIBZCASH) \
 	$(LIBBITCOIN_CRYPTO) \
-  $(LIBVERUS_CRYPTO) \
-  $(LIBVERUS_PORTABLE_CRYPTO) \
+	$(LIBVERUS_CRYPTO) \
+	$(LIBVERUS_PORTABLE_CRYPTO) \
 	$(LIBZCASH_LIBS)
 
 if ENABLE_WALLET
@@ -617,8 +655,8 @@ wallet_utility_LDADD = \
 	libbitcoin_wallet.a \
 	$(LIBBITCOIN_COMMON) \
 	$(LIBBITCOIN_CRYPTO) \
-  $(LIBVERUS_CRYPTO) \
-  $(LIBVERUS_PORTABLE_CRYPTO) \
+	$(LIBVERUS_CRYPTO) \
+	$(LIBVERUS_PORTABLE_CRYPTO) \
 	$(LIBSECP256K1) \
 	$(LIBBITCOIN_UTIL) \
 	$(BOOST_LIBS) \
@@ -627,21 +665,21 @@ wallet_utility_LDADD = \
 	$(LIBZCASH) \
 	$(LIBSNARK) \
 	$(LIBZCASH_LIBS)\
-  $(LIBCRYPTOCONDITIONS)
+	$(LIBCRYPTOCONDITIONS)
 endif
 
 # zcash-tx binary #
-komodo_tx_SOURCES = komodo-tx.cpp
-komodo_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-komodo_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-komodo_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+verus_tx_SOURCES = komodo-tx.cpp
+verus_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+verus_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+verus_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-komodo_tx_SOURCES += bitcoin-tx-res.rc
+verus_tx_SOURCES += bitcoin-tx-res.rc
 endif
 
 # FIXME: Is libzcash needed for zcash_tx?
-komodo_tx_LDADD = \
+verus_tx_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_UTIL) \
@@ -654,7 +692,7 @@ komodo_tx_LDADD = \
   $(LIBZCASH_LIBS) \
   $(LIBCRYPTOCONDITIONS)
 
-komodo_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+verus_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #
 
 # zcash protocol primitives #

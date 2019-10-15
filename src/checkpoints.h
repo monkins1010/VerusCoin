@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_CHECKPOINTS_H
 #define BITCOIN_CHECKPOINTS_H
@@ -31,10 +31,10 @@ struct CCheckpointData {
     bool CheckBlock(const CChainParams::CCheckpointData& data, int nHeight, const uint256& hash);
 
     
-//! Return conservative estimate of total number of blocks, 0 if unknown
+    //! Return conservative estimate of total number of blocks, 0 if unknown
     int GetTotalBlocksEstimate(const CChainParams::CCheckpointData& data);
 
-//! Returns last CBlockIndex* in mapBlockIndex that is a checkpoint
+    //! Returns last CBlockIndex* in mapBlockIndex that is a checkpoint
     CBlockIndex* GetLastCheckpoint(const CChainParams::CCheckpointData& data);
 
 double GuessVerificationProgress(const CChainParams::CCheckpointData& data, CBlockIndex* pindex, bool fSigchecks = true);

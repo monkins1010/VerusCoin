@@ -1,22 +1,22 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2013 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_MINER_H
 #define BITCOIN_MINER_H
 
 #include "primitives/block.h"
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 
 #include <boost/optional.hpp>
 #include <stdint.h>
 
 class CBlockIndex;
+class CChainParams;
 class CScript;
-#ifdef ENABLE_WALLET
-class CReserveKey;
-class CWallet;
-#endif
 namespace Consensus { struct Params; };
 
 struct CBlockTemplate
@@ -28,7 +28,7 @@ struct CBlockTemplate
 #define KOMODO_MAXGPUCOUNT 65
 
 /** Generate a new block, without valid proof-of-work */
-CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, int32_t gpucount, bool isStake = false);
+CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& scriptPubKeyIn, int32_t gpucount=0, bool isStake=false);
 #ifdef ENABLE_WALLET
 boost::optional<CScript> GetMinerScriptPubKey(CReserveKey& reservekey);
 CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, int32_t nHeight, int32_t gpucount, bool isStake = false);
@@ -38,14 +38,16 @@ CBlockTemplate* CreateNewBlockWithKey();
 #endif
 
 #ifdef ENABLE_MINING
+/** Get script for -mineraddress */
+void GetScriptForMinerAddress(boost::shared_ptr<CReserveScript> &script);
 /** Modify the extranonce in a block */
-void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& nExtraNonce);
+void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& nExtraNonce, bool buildMerkle=true, uint32_t *pSaveBits=NULL);
 /** Run the miner threads */
- #ifdef ENABLE_WALLET
-void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads);
- #else
-void GenerateBitcoins(bool fGenerate, int nThreads);
- #endif
+#ifdef ENABLE_WALLET
+    void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads);
+#else
+    void GenerateBitcoins(bool fGenerate, int nThreads);
+#endif
 #endif
 
 void UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev);

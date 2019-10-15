@@ -510,7 +510,7 @@ int32_t komodo_validate_chain(uint256 srchash,int32_t notarized_height)
     static int32_t last_rewind; int32_t rewindtarget; CBlockIndex *pindex; struct komodo_state *sp; char symbol[KOMODO_ASSETCHAIN_MAXLEN],dest[KOMODO_ASSETCHAIN_MAXLEN];
     if ( (sp= komodo_stateptr(symbol,dest)) == 0 )
         return(0);
-    if ( IsInitialBlockDownload() == 0 && ((pindex= mapBlockIndex[srchash]) == 0 || pindex->GetHeight() != notarized_height) )
+    if ( IsInitialBlockDownload(Params()) == 0 && ((pindex= mapBlockIndex[srchash]) == 0 || pindex->GetHeight() != notarized_height) )
     {
         if ( sp->NOTARIZED_HEIGHT > 0 && sp->NOTARIZED_HEIGHT < notarized_height )
             rewindtarget = sp->NOTARIZED_HEIGHT - 1;
@@ -851,7 +851,10 @@ void komodo_connectblock(CBlockIndex *pindex,CBlock& block)
                             printf("%02x",scriptPubKey[k]);
                         printf(" scriptPubKey doesnt match any notary vini.%d of %d\n",j,numvins);
                     }
-                } else printf("cant get scriptPubKey for ht.%d txi.%d vin.%d\n",height,i,j);
+                } else
+                {
+                    printf("cant get scriptPubKey for ht.%d txi.%d vin.%d\n",height,i,j);
+                }
             }
             numvalid = bitweight(signedmask);
             if ( (((height < 90000 || (signedmask & 1) != 0) && numvalid >= KOMODO_MINRATIFY) ||

@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_CONSENSUS_CONSENSUS_H
 #define BITCOIN_CONSENSUS_CONSENSUS_H
@@ -25,6 +25,10 @@ extern unsigned int MAX_BLOCK_SIGOPS;
 /** The maximum size of a transaction (network rule) */
 static const unsigned int MAX_TX_SIZE_BEFORE_SAPLING = 100000;
 static const unsigned int MAX_TX_SIZE_AFTER_SAPLING = MAX_BLOCK_SIZE;
+static const unsigned int MAX_TX_SIZE_FOR_STAKING = 2048;               // we won't stake with transactions that are too large to avoid
+                                                                        // massive header proofs. staking transactoin source goes into the
+                                                                        // header. has to be big enough to handle typical unshielding transactions
+
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 extern int COINBASE_MATURITY;
 /** The minimum value which is invalid for expiry height, used by CTransaction and CMutableTransaction */

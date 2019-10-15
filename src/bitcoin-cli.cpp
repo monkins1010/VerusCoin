@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2013 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "chainparamsbase.h"
 #include "clientversion.h"
@@ -9,6 +9,7 @@
 #include "rpc/protocol.h"
 #include "util.h"
 #include "utilstrencodings.h"
+#include "version.h"
 
 #include <boost/filesystem/operations.hpp>
 #include <stdio.h>
@@ -77,7 +78,6 @@ public:
 
 void komodo_stateupdate(int32_t height,uint8_t notarypubs[][33],uint8_t numnotaries,uint8_t notaryid,uint256 txhash,uint64_t voutmask,uint8_t numvouts,uint32_t *pvals,uint8_t numpvals,int32_t KMDheight,uint32_t KMDtimestamp,uint64_t opretvalue,uint8_t *opretbuf,uint16_t opretlen,uint16_t vout,uint256 MoM,int32_t MoMdepth)
 {
-    
 }
 
 uint32_t komodo_heightstamp(int32_t height)
@@ -101,12 +101,11 @@ static int AppInitRPC(int argc, char* argv[])
     ParseParameters(argc, argv);
     komodo_args(argv[0]);
     if (argc<2 || mapArgs.count("-?") || mapArgs.count("-h") || mapArgs.count("-help") || mapArgs.count("-version")) {
-        std::string strUsage = _("Komodo RPC client version") + " " + FormatFullVersion() + "\n" + PrivacyInfo();
-        if (!mapArgs.count("-version")) {
-            strUsage += "\n" + _("Usage:") + "\n" +
-                  "  komodo-cli [options] <command> [params]  " + _("Send command to Komodo") + "\n" +
-                  "  komodo-cli [options] help                " + _("List commands") + "\n" +
-                  "  komodo-cli [options] help <command>      " + _("Get help for a command") + "\n";
+        std::string strUsage = _("Verus RPC client version") + " " + _(VERUS_VERSION) + "\n" + PrivacyInfo();
+        if (!mapArgs.count("-version")) {      strUsage += "\n" + _("Usage:") + "\n" +
+                  "  verus [options] <command> [params]  " + _("Send command to Komodo") + "\n" +
+                  "  verus [options] help                " + _("List commands") + "\n" +
+                  "  verus [options] help <command>      " + _("Get help for a command") + "\n";
 
             strUsage += "\n" + HelpMessageCli();
         } else {

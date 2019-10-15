@@ -1,11 +1,12 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include <cryptoconditions.h>
 
 #include "interpreter.h"
+#include "standard.h"
 
 #include "consensus/upgrades.h"
 #include "primitives/transaction.h"
@@ -1006,12 +1007,12 @@ namespace {
  */
 class CTransactionSignatureSerializer {
 private:
-    const CTransaction &txTo;  //! reference to the spending transaction (the one being serialized)
-    const CScript &scriptCode; //! output script being consumed
-    const unsigned int nIn;    //! input index of txTo being signed
-    const bool fAnyoneCanPay;  //! whether the hashtype has the SIGHASH_ANYONECANPAY flag set
-    const bool fHashSingle;    //! whether the hashtype is SIGHASH_SINGLE
-    const bool fHashNone;      //! whether the hashtype is SIGHASH_NONE
+    const CTransaction& txTo;  //!< reference to the spending transaction (the one being serialized)
+    const CScript& scriptCode; //!< output script being consumed
+    const unsigned int nIn;    //!< input index of txTo being signed
+    const bool fAnyoneCanPay;  //!< whether the hashtype has the SIGHASH_ANYONECANPAY flag set
+    const bool fHashSingle;    //!< whether the hashtype is SIGHASH_SINGLE
+    const bool fHashNone;      //!< whether the hashtype is SIGHASH_NONE
 
 public:
     CTransactionSignatureSerializer(const CTransaction &txToIn, const CScript &scriptCodeIn, unsigned int nInIn, int nHashTypeIn) :
@@ -1079,7 +1080,7 @@ public:
         // Serialize nLockTime
         ::Serialize(s, txTo.nLockTime);
 
-        // Serialize vjoinsplit
+        // Serialize vJoinSplit
         if (txTo.nVersion >= 2) {
             //
             // SIGHASH_* functions will hash portions of
@@ -1087,8 +1088,8 @@ public:
             // keeps the JoinSplit cryptographically bound
             // to the transaction.
             //
-            ::Serialize(s, txTo.vjoinsplit);
-            if (txTo.vjoinsplit.size() > 0) {
+            ::Serialize(s, txTo.vJoinSplit);
+            if (txTo.vJoinSplit.size() > 0) {
                 ::Serialize(s, txTo.joinSplitPubKey);
 
                 CTransaction::joinsplit_sig_t nullSig = {};
@@ -1137,8 +1138,8 @@ uint256 GetOutputsHash(const CTransaction& txTo) {
 
 uint256 GetJoinSplitsHash(const CTransaction& txTo) {
     CBLAKE2bWriter ss(SER_GETHASH, static_cast<int>(txTo.GetHeader()), ZCASH_JOINSPLITS_HASH_PERSONALIZATION);
-    for (unsigned int n = 0; n < txTo.vjoinsplit.size(); n++) {
-        ss << txTo.vjoinsplit[n];
+    for (unsigned int n = 0; n < txTo.vJoinSplit.size(); n++) {
+        ss << txTo.vJoinSplit[n];
     }
     ss << txTo.joinSplitPubKey;
     return ss.GetHash();
@@ -1229,7 +1230,7 @@ uint256 SignatureHash(
             hashOutputs = ss.GetHash();
         }
 
-        if (!txTo.vjoinsplit.empty()) {
+        if (!txTo.vJoinSplit.empty()) {
             hashJoinSplits = cache ? cache->hashJoinSplits : GetJoinSplitsHash(txTo);
         }
 
@@ -1358,9 +1359,15 @@ int TransactionSignatureChecker::CheckCryptoCondition(
     int error = cc_readFulfillmentBinaryExt((unsigned char*)ffillBin.data(), ffillBin.size()-1, &cond);
     if (error || !cond) return -1;
 
-    if (!IsSupportedCryptoCondition(cond)) return 0;
+    COptCCParams p;
+    if (!scriptCode.IsPayToCryptoCondition(p))
+    {
+        return false;
+    }
+
+    if (!IsSupportedCryptoCondition(cond, p.IsValid() ? p.evalCode : 0)) return 0;
     if (!IsSignedCryptoCondition(cond)) return 0;
-    
+
     uint256 sighash;
     int nHashType = ffillBin.back();
     try {
@@ -1381,9 +1388,11 @@ int TransactionSignatureChecker::CheckCryptoCondition(
         //fprintf(stderr,"checker.%p\n",(TransactionSignatureChecker*)checker);
         return ((TransactionSignatureChecker*)checker)->CheckEvalCondition(cond);
     };
+
     //fprintf(stderr,"non-checker path\n");
     int out = cc_verify(cond, (const unsigned char*)&sighash, 32, 0,
-                        condBin.data(), condBin.size(), eval, (void*)this);
+                        condBin.data(), condBin.size(), eval, (void*)this, true);
+
     //fprintf(stderr,"out.%d from cc_verify\n",(int32_t)out);
     cc_free(cond);
     return out;

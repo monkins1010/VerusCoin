@@ -388,6 +388,29 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_ecdsa_verify(
     const secp256k1_pubkey *pubkey
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4);
 
+/** Partially verify an ECDSA signature as valid without a pubkey.
+ *
+ *  Returns: 1: correct signature
+ *           0: incorrect or unparseable signature
+ *  Args:    ctx:       a secp256k1 context object, initialized for verification.
+ *  In:      sig:       the signature being verified (cannot be NULL)
+ *           msg32:     the 32-byte message hash being verified (cannot be NULL)
+ *
+ * To avoid accepting malleable signatures, only ECDSA signatures in lower-S
+ * form are accepted.
+ *
+ * If you need to accept ECDSA signatures from sources that do not obey this
+ * rule, apply secp256k1_ecdsa_signature_normalize to the signature prior to
+ * validation, but be aware that doing so results in malleable signatures.
+ *
+ * For details, see the comments for that function.
+ */
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_ecdsa_verify_validonly(
+    const secp256k1_context* ctx,
+    const secp256k1_ecdsa_signature *sig,
+    const unsigned char *msg32
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3);
+
 /** Convert a signature to a normalized lower-S form.
  *
  *  Returns: 1 if sigin was not normalized, 0 if it already was.

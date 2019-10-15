@@ -1,7 +1,7 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "rpc/server.h"
 
@@ -243,7 +243,7 @@ extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
 #ifdef ENABLE_WALLET
 void GenerateBitcoins(bool b, CWallet *pw, int t);
 #else
-void GenerateBitcoins(bool b, CWallet *pw);
+void GenerateBitcoins(bool b, int t);
 #endif
 
 
@@ -257,14 +257,14 @@ UniValue stop(const UniValue& params, bool fHelp)
             "\nStop Komodo server.");
 
 #ifdef ENABLE_WALLET
-    GenerateBitcoins(false, pwalletMain, 0);
+    GenerateBitcoins(false, NULL, 0);
 #else
     GenerateBitcoins(false, 0);
 #endif
 
     // Shutdown will take long enough that the response should get back
     StartShutdown();
-    sprintf(buf,"%s Komodo server stopping",ASSETCHAINS_SYMBOL);
+    sprintf(buf,"%s server stopping",ASSETCHAINS_SYMBOL);
     return buf;
 }
 
@@ -736,7 +736,9 @@ UniValue CRPCTable::execute(const std::string &strMethod, const UniValue &params
     // Find method
     const CRPCCommand *pcmd = tableRPC[strMethod];
     if (!pcmd)
-        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found");
+    {
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method " + strMethod + " not found");
+    }
 
     g_rpcSignals.PreCommand(*pcmd);
 
@@ -755,13 +757,13 @@ UniValue CRPCTable::execute(const std::string &strMethod, const UniValue &params
 
 std::string HelpExampleCli(const std::string& methodname, const std::string& args)
 {
-    return "> komodo-cli " + methodname + " " + args + "\n";
+    return "> verus " + methodname + " " + args + "\n";
 }
 
 std::string HelpExampleRpc(const std::string& methodname, const std::string& args)
 {
     return "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\":\"curltest\", "
-        "\"method\": \"" + methodname + "\", \"params\": [" + args + "] }' -H 'content-type: text/plain;' http://127.0.0.1:7771/\n";
+        "\"method\": \"" + methodname + "\", \"params\": [" + args + "] }' -H 'content-type: text/plain;' http://127.0.0.1:27486/\n";
 }
 
 string experimentalDisabledHelpMsg(const string& rpc, const string& enableArg)

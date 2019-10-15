@@ -1,10 +1,11 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "rpc/client.h"
 #include "rpc/protocol.h"
+#include "pbaas/crosschainrpc.h"
 #include "util.h"
 
 #include <set>
@@ -17,9 +18,66 @@ using namespace std;
 class CRPCConvertParam
 {
 public:
-    std::string methodName;            //! method whose params want conversion
-    int paramIdx;                      //! 0-based idx of param to convert
+    std::string methodName; //!< method whose params want conversion
+    int paramIdx;           //!< 0-based idx of param to convert
 };
+
+// DUMMY for compile - only used in server
+UniValue RPCCallRoot(const string& strMethod, const UniValue& params, int timeout)
+{
+    assert(false);
+}
+
+bool SetThisChain(UniValue &chainDefinition)
+{}
+
+int32_t uni_get_int(UniValue uv, int32_t def)
+{
+    try
+    {
+        return uv.get_int();
+    }
+    catch(const std::exception& e)
+    {
+        return def;
+    }
+}
+
+int64_t uni_get_int64(UniValue uv, int64_t def)
+{
+    try
+    {
+        return uv.get_int64();
+    }
+    catch(const std::exception& e)
+    {
+        return def;
+    }
+}
+
+std::string uni_get_str(UniValue uv, std::string def)
+{
+    try
+    {
+        return uv.get_str();
+    }
+    catch(const std::exception& e)
+    {
+        return def;
+    }
+}
+
+std::vector<UniValue> uni_getValues(UniValue uv, std::vector<UniValue> def)
+{
+    try
+    {
+        return uv.getValues();
+    }
+    catch(const std::exception& e)
+    {
+        return def;
+    }
+}
 
 static const CRPCConvertParam vRPCConvertParams[] =
 {
@@ -99,15 +157,16 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "prioritisetransaction", 2 },
     { "setban", 2 },
     { "setban", 3 },
-    { "getblockhashes", 0 },
-    { "getblockhashes", 1 },
-    { "getblockhashes", 2 },
     { "getspentinfo", 0},
     { "getaddresstxids", 0},
     { "getaddressbalance", 0},
     { "getaddressdeltas", 0},
     { "getaddressutxos", 0},
     { "getaddressmempool", 0},
+    { "getblockhashes", 0},
+    { "getblockhashes", 1},
+    { "getblockhashes", 2},
+    { "getblockdeltas", 0},
     { "zcrawjoinsplit", 1 },
     { "zcrawjoinsplit", 2 },
     { "zcrawjoinsplit", 3 },
@@ -154,6 +213,11 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "getproofroot", 2},
     { "height_MoM", 1},
     { "calc_MoM", 2},
+    // pbaas
+    { "definechain", 0},
+    { "getdefinedchains", 0},
+    { "sendreserve", 0},
+    { "z_setmigration", 0},
 };
 
 class CRPCConvertTable

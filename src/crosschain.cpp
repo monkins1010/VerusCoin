@@ -306,7 +306,7 @@ TxProof GetAssetchainProof(uint256 hash)
         if (fHavePruned && !(blockIndex->nStatus & BLOCK_HAVE_DATA) && blockIndex->nTx > 0)
             throw std::runtime_error("Block not available (pruned data)");
 
-        if(!ReadBlockFromDisk(block, blockIndex,1))
+        if(!ReadBlockFromDisk(block, blockIndex, Params().GetConsensus(), 1))
             throw std::runtime_error("Can't read block from disk");
 
         // Locate the transaction in the block

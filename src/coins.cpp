@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "coins.h"
 
@@ -10,6 +10,8 @@
 #include "policy/fees.h"
 #include "komodo_defs.h"
 #include "importcoin.h"
+#include "pbaas/notarization.h"
+#include "pbaas/reserves.h"
 
 #include <assert.h>
 
@@ -318,7 +320,7 @@ void CCoinsViewCache::PopAnchor(const uint256 &newrt, ShieldedType type) {
 }
 
 void CCoinsViewCache::SetNullifiers(const CTransaction& tx, bool spent) {
-    for (const JSDescription &joinsplit : tx.vjoinsplit) {
+    for (const JSDescription &joinsplit : tx.vJoinSplit) {
         for (const uint256 &nullifier : joinsplit.nullifiers) {
             std::pair<CNullifiersMap::iterator, bool> ret = cacheSproutNullifiers.insert(std::make_pair(nullifier, CNullifiersCacheEntry()));
             ret.first->second.entered = spent;
@@ -360,6 +362,15 @@ CCoinsModifier CCoinsViewCache::ModifyCoins(const uint256 &txid) {
     // Assume that whenever ModifyCoins is called, the entry will be modified.
     ret.first->second.flags |= CCoinsCacheEntry::DIRTY;
     return CCoinsModifier(*this, ret.first, cachedCoinUsage);
+}
+
+CCoinsModifier CCoinsViewCache::ModifyNewCoins(const uint256 &txid) {
+    assert(!hasModifier);
+    std::pair<CCoinsMap::iterator, bool> ret = cacheCoins.insert(std::make_pair(txid, CCoinsCacheEntry()));
+    ret.first->second.coins.Clear();
+    ret.first->second.flags = CCoinsCacheEntry::FRESH;
+    ret.first->second.flags |= CCoinsCacheEntry::DIRTY;
+    return CCoinsModifier(*this, ret.first, 0);
 }
 
 const CCoins* CCoinsViewCache::AccessCoins(const uint256 &txid) const {
@@ -589,7 +600,32 @@ CAmount CCoinsViewCache::GetValueIn(int32_t nHeight,int64_t *interestp,const CTr
         return 0;
     for (unsigned int i = 0; i < tx.vin.size(); i++)
     {
-        value = GetOutputFor(tx.vin[i]).nValue;
+        value = 0;
+        const CCoins* coins = AccessCoins(tx.vin[i].prevout.hash);
+        if (coins && coins->IsAvailable(tx.vin[i].prevout.n))
+        {
+            // if we are a PBaaS chain tx with a coinbase currency state input, all non-shielded inputs are effectively considered burned, since this must be the
+            // block's conversion transaction and they are assumed to all be converted
+            COptCCParams p;
+            if (!_IsVerusActive() && coins->fCoinBase && coins->vout[tx.vin[i].prevout.n].scriptPubKey.IsPayToCryptoCondition(p) && p.evalCode == EVAL_CURRENCYSTATE)
+            {
+                CCoinbaseCurrencyState cbcs;
+                if (p.vData.size() && (cbcs = CCoinbaseCurrencyState(p.vData[0])).IsValid() && cbcs.IsReserve())
+                {
+                    nResult = coins->vout[tx.vin[i].prevout.n].nValue;
+                    break;
+                }
+            }
+            else
+            {
+                value = coins->vout[tx.vin[i].prevout.n].nValue;
+            }
+        }
+        else
+        {
+            return 0;
+        }
+
         nResult += value;
 #ifdef KOMODO_ENABLE_INTEREST
         if ( ASSETCHAINS_SYMBOL[0] == 0 && nHeight >= 60000 )
@@ -601,7 +637,8 @@ CAmount CCoinsViewCache::GetValueIn(int32_t nHeight,int64_t *interestp,const CTr
                 //printf("nResult %.8f += val %.8f interest %.8f ht.%d lock.%u tip.%u\n",(double)nResult/COIN,(double)value/COIN,(double)interest/COIN,txheight,locktime,tiptime);
                 //fprintf(stderr,"nResult %.8f += val %.8f interest %.8f ht.%d lock.%u tip.%u\n",(double)nResult/COIN,(double)value/COIN,(double)interest/COIN,txheight,locktime,tiptime);
                 nResult += interest;
-                (*interestp) += interest;
+                if (interestp)
+                    (*interestp) += interest;
             }
         }
 #endif
@@ -611,12 +648,65 @@ CAmount CCoinsViewCache::GetValueIn(int32_t nHeight,int64_t *interestp,const CTr
     return nResult;
 }
 
+CAmount CCoinsViewCache::GetReserveValueIn(int32_t nHeight, const CTransaction& tx) const
+{
 
-bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx) const
+    if (_IsVerusActive())
+    {
+        CAmount dummyInterest;
+        return GetValueIn(nHeight, &dummyInterest, tx);
+    }
+
+    CAmount nResult = 0;
+
+    /* we don't support this coin import, so we should add reserve import support and uncomment
+    if ( tx.IsCoinImport() )
+        return GetCoinImportValue(tx);
+    */
+
+    // coinbases have no inputs
+    if ( tx.IsCoinBase() != 0 )
+        return 0;
+
+    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    {
+        const CCoins* coins = AccessCoins(tx.vin[i].prevout.hash);
+        if (coins && coins->IsAvailable(tx.vin[i].prevout.n))
+        {
+            COptCCParams p;
+            if (::IsPayToCryptoCondition(coins->vout[tx.vin[i].prevout.n].scriptPubKey, p))
+            {
+                if (p.evalCode == EVAL_RESERVE_OUTPUT)
+                {
+                    nResult += coins->vout[tx.vin[i].prevout.n].scriptPubKey.ReserveOutValue();
+                }
+                else if (!_IsVerusActive() && coins->fCoinBase && p.evalCode == EVAL_CURRENCYSTATE)
+                {
+                    // if spends currency state, all input comes from that
+                    // rest is burned
+                    CCoinbaseCurrencyState cbcs;
+                    if (p.vData.size() && (cbcs = CCoinbaseCurrencyState(p.vData[0])).IsValid() && cbcs.IsReserve())
+                    {
+                        nResult = cbcs.ReserveOut.nValue;
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            return 0;
+        }
+    }
+    return nResult;
+}
+
+//bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx) const
+bool CCoinsViewCache::HaveShieldedRequirements(const CTransaction& tx) const
 {
     boost::unordered_map<uint256, SproutMerkleTree, CCoinsKeyHasher> intermediates;
 
-    BOOST_FOREACH(const JSDescription &joinsplit, tx.vjoinsplit)
+    BOOST_FOREACH(const JSDescription &joinsplit, tx.vJoinSplit)
     {
         BOOST_FOREACH(const uint256& nullifier, joinsplit.nullifiers)
         {
@@ -671,7 +761,7 @@ bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const
     return true;
 }
 
-double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight) const
+double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight, const CReserveTransactionDescriptor *desc, const CCurrencyState *currencyState) const
 {
     if (tx.IsCoinBase())
         return 0.0;
@@ -681,7 +771,7 @@ double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight) const
     // use the maximum priority for all (partially or fully) shielded transactions.
     // (Note that coinbase transactions cannot contain JoinSplits, or Sapling shielded Spends or Outputs.)
 
-    if (tx.vjoinsplit.size() > 0 || tx.vShieldedSpend.size() > 0 || tx.vShieldedOutput.size() > 0 || tx.IsCoinImport()) {
+    if (tx.vJoinSplit.size() > 0 || tx.vShieldedSpend.size() > 0 || tx.vShieldedOutput.size() > 0 || tx.IsCoinImport()) {
         return MAX_PRIORITY;
     }
 
@@ -695,6 +785,12 @@ double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight) const
         if (coins->nHeight < nHeight) {
             dResult += coins->vout[txin.prevout.n].nValue * (nHeight-coins->nHeight);
         }
+    }
+
+    // should at least get an average confs and do better than this
+    if (currencyState && desc)
+    {
+        dResult += desc->reserveOut;
     }
 
     return tx.ComputePriority(dResult);

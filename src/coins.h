@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #ifndef BITCOIN_COINS_H
 #define BITCOIN_COINS_H
@@ -25,6 +25,7 @@
 #include <boost/unordered_map.hpp>
 #include "zcash/IncrementalMerkleTree.hpp"
 #include "veruslaunch.h"
+#include "pbaas/reserves.h"
 
 /** 
  * Pruned version of CTransaction: only retains metadata and unspent transaction outputs
@@ -552,6 +553,16 @@ public:
     CCoinsModifier ModifyCoins(const uint256 &txid);
 
     /**
+     * Return a modifiable reference to a CCoins. Assumes that no entry with the given
+     * txid exists and creates a new one. This saves a database access in the case where
+     * the coins were to be wiped out by FromTx anyway. We rely on Zcash-derived block chains
+     * having no duplicate transactions, since BIP 30 and (except for the genesis block)
+     * BIP 34 have been enforced since launch. See the Zcash protocol specification, section
+     * "Bitcoin Improvement Proposals". Simultaneous modifications are not allowed.
+     */
+    CCoinsModifier ModifyNewCoins(const uint256 &txid);
+
+    /**
      * Push the modifications applied to this cache to its base.
      * Failure to call this method before destruction will cause the changes to be forgotten.
      * If false is returned, the state of this cache (and its backing view) will be undefined.
@@ -571,17 +582,22 @@ public:
      *
      * @param[in] tx	transaction for which we are checking input total
      * @return	Sum of value of all inputs (scriptSigs), (positive valueBalance or zero) and JoinSplit vpub_new
+     * 
+     * prevblocktime is not currently use and defaults to 0
      */
-    CAmount GetValueIn(int32_t nHeight,int64_t *interestp,const CTransaction& tx,uint32_t prevblocktime) const;
+    CAmount GetValueIn(int32_t nHeight,int64_t *interestp,const CTransaction& tx, uint32_t prevblocktime=0) const;
+
+    // for fractional reserve chains only
+    CAmount GetReserveValueIn(int32_t nHeight, const CTransaction& tx) const;
 
     //! Check whether all prevouts of the transaction are present in the UTXO set represented by this view
     bool HaveInputs(const CTransaction& tx) const;
 
-    //! Check whether all joinsplit requirements (anchors/nullifiers) are satisfied
-    bool HaveJoinSplitRequirements(const CTransaction& tx) const;
+    //! Check whether all joinsplit and sapling spend requirements (anchors/nullifiers) are satisfied
+    bool HaveShieldedRequirements(const CTransaction& tx) const;
 
     //! Return priority of tx at height nHeight
-    double GetPriority(const CTransaction &tx, int nHeight) const;
+    double GetPriority(const CTransaction &tx, int nHeight, const CReserveTransactionDescriptor *desc=NULL, const CCurrencyState *currencyState=NULL) const;
 
     const CTxOut &GetOutputFor(const CTxIn& input) const;
     const CScript &GetSpendFor(const CTxIn& input) const;

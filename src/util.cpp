@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #if defined(HAVE_CONFIG_H)
 #include "config/bitcoin-config.h"
@@ -115,6 +115,13 @@ bool fLogTimeMicros = DEFAULT_LOGTIMEMICROS;
 bool fLogIPs = DEFAULT_LOGIPS;
 std::atomic<bool> fReopenDebugLog(false);
 CTranslationInterface translationInterface;
+
+extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
+
+bool _IsVerusActive()
+{
+    return (strcmp(ASSETCHAINS_SYMBOL, "VRSC") == 0 || strcmp(ASSETCHAINS_SYMBOL, "VRSCTEST") == 0);
+}
 
 /** Init OpenSSL library multithreading support */
 static CCriticalSection** ppmutexOpenSSL;
@@ -379,7 +386,7 @@ void ParseParameters(int argc, const char* const argv[])
     }
 }
 
-void Split(const std::string& strVal, uint64_t *outVals, const uint64_t nDefault)
+void Split(const std::string& strVal, uint64_t *outVals, const uint64_t nDefault,int maxElements)
 {
     stringstream ss(strVal);
     vector<uint64_t> vec;
@@ -389,7 +396,7 @@ void Split(const std::string& strVal, uint64_t *outVals, const uint64_t nDefault
     while ( ss.peek() == ' ' )
         ss.ignore();
 
-    while ( ss >> i )
+    while ( numVals < maxElements && ss >> i )
     {
         outVals[numVals] = i;
         numVals += 1;
@@ -407,7 +414,7 @@ void Split(const std::string& strVal, uint64_t *outVals, const uint64_t nDefault
     else
         nLast = nDefault;
 
-    for ( i = numVals; i < ASSETCHAINS_MAX_ERAS; i++ )
+    for ( i = numVals; i < maxElements; i++ )
     {
         outVals[i] = nLast;
     }
@@ -493,7 +500,6 @@ void PrintExceptionContinue(const std::exception* pex, const char* pszThread)
     strMiscWarning = message;
 }
 
-extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
 //int64_t MAX_MONEY = 200000000 * 100000000LL;
 
 boost::filesystem::path GetDefaultDataDir()
@@ -511,7 +517,17 @@ boost::filesystem::path GetDefaultDataDir()
     // Windows
     if ( symbol[0] == 0 )
         return GetSpecialFolderPath(CSIDL_APPDATA) / "Komodo";
-    else return GetSpecialFolderPath(CSIDL_APPDATA) / "Komodo" / symbol;
+    else
+    {
+        if (_IsVerusActive())
+        {
+            return GetSpecialFolderPath(CSIDL_APPDATA) / "Komodo" / symbol;
+        }
+        else
+        {
+            return GetSpecialFolderPath(CSIDL_APPDATA) / (PBAAS_TESTMODE ? "VerusTest" : "Verus") / "PBAAS" / symbol;
+        }
+    }
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -527,15 +543,96 @@ boost::filesystem::path GetDefaultDataDir()
         return pathRet / "Komodo";
     else
     {
-        pathRet /= "Komodo";
-        TryCreateDirectory(pathRet);
+        if (_IsVerusActive())
+        {
+            pathRet /= "Komodo";
+            TryCreateDirectory(pathRet);
+        }
+        else
+        {
+            pathRet /= PBAAS_TESTMODE ? "VerusTest" : "Verus";
+            TryCreateDirectory(pathRet);
+            pathRet /= "PBAAS";
+            TryCreateDirectory(pathRet);
+        }
         return pathRet / symbol;
     }
 #else
     // Unix
     if ( symbol[0] == 0 )
         return pathRet / ".komodo";
-    else return pathRet / ".komodo" / symbol;
+    else
+    {
+        if (_IsVerusActive())
+        {
+            return pathRet / ".komodo" / symbol;
+        }
+        else
+        {
+            return pathRet / (PBAAS_TESTMODE ? ".verustest" : ".verus") / "PBAAS" / symbol;
+        }
+    }
+#endif
+#endif
+}
+
+boost::filesystem::path GetDefaultDataDir(std::string chainName)
+{
+    char symbol[KOMODO_ASSETCHAIN_MAXLEN];
+    if (chainName.size() >= KOMODO_ASSETCHAIN_MAXLEN)
+        chainName.resize(KOMODO_ASSETCHAIN_MAXLEN - 1);
+    strcpy(symbol, chainName.c_str());
+
+    namespace fs = boost::filesystem;
+
+    // Windows < Vista: C:\Documents and Settings\Username\Application Data\Zcash
+    // Windows >= Vista: C:\Users\Username\AppData\Roaming\Zcash
+    // Mac: ~/Library/Application Support/Zcash
+    // Unix: ~/.zcash
+#ifdef _WIN32
+    // Windows
+    if (chainName == "VRSC" || chainName == "VRSCTEST")
+    {
+        return GetSpecialFolderPath(CSIDL_APPDATA) / "Komodo" / symbol;
+    }
+    else
+    {
+        return GetSpecialFolderPath(CSIDL_APPDATA) / (PBAAS_TESTMODE ? "VerusTest" : "Verus") / "PBAAS" / symbol;
+    }
+#else
+    fs::path pathRet;
+    char* pszHome = getenv("HOME");
+    if (pszHome == NULL || strlen(pszHome) == 0)
+        pathRet = fs::path("/");
+    else
+        pathRet = fs::path(pszHome);
+#ifdef MAC_OSX
+    // Mac
+    pathRet /= "Library/Application Support";
+    TryCreateDirectory(pathRet);
+    if (chainName == "VRSC" || chainName == "VRSCTEST")
+    {
+        pathRet /= "Komodo";
+        TryCreateDirectory(pathRet);
+    }
+    else
+    {
+        pathRet /= PBAAS_TESTMODE ? "VerusTest" : "Verus";
+        TryCreateDirectory(pathRet);
+        pathRet /= "PBAAS";
+        TryCreateDirectory(pathRet);
+    }
+    return pathRet / symbol;
+#else
+    // Unix
+    if (chainName == "VRSC" || chainName == "VRSCTEST")
+    {
+        return pathRet / ".komodo" / symbol;
+    }
+    else
+    {
+        return pathRet / (PBAAS_TESTMODE ? ".verustest" : ".verus") / "PBAAS" / symbol;
+    }
 #endif
 #endif
 }
@@ -644,6 +741,22 @@ const boost::filesystem::path &GetDataDir(bool fNetSpecific)
     return path;
 }
 
+const boost::filesystem::path GetDataDir(std::string chainName)
+{
+    namespace fs = boost::filesystem;
+    fs::path path;
+
+    if ((chainName == "VRSC" || chainName == "VRSCTEST") && mapArgs.count("-datadir")) {
+        path = fs::system_complete(mapArgs["-datadir"]);
+        if (!fs::is_directory(path)) {
+            path = GetDefaultDataDir(chainName);
+        }
+    } else
+    {
+        path = GetDefaultDataDir(chainName);
+    }
+    return path;
+}
 void ClearDatadirCache()
 {
     pathCached = boost::filesystem::path();
@@ -666,6 +779,19 @@ boost::filesystem::path GetConfigFile()
     boost::filesystem::path pathConfigFile(GetArg("-conf",confname));
     if (!pathConfigFile.is_complete())
         pathConfigFile = GetDataDir(false) / pathConfigFile;
+
+    return pathConfigFile;
+}
+
+boost::filesystem::path GetConfigFile(std::string chainName)
+{
+    char confname[512];
+    if (chainName.size() >= KOMODO_ASSETCHAIN_MAXLEN)
+        chainName.resize(KOMODO_ASSETCHAIN_MAXLEN - 1);
+    sprintf(confname, "%s.conf", chainName.c_str());
+    boost::filesystem::path pathConfigFile(GetArg("-conf",confname));
+    if (!pathConfigFile.is_complete())
+        pathConfigFile = GetDataDir(chainName) / pathConfigFile;
 
     return pathConfigFile;
 }
@@ -698,10 +824,37 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
     BITCOIND_RPCPORT = GetArg("-rpcport",BaseParams().RPCPort());
 }
 
+// for reading an external config file. does not clear the data dir cache
+bool ReadConfigFile(std::string chainName,
+                    map<string, string>& mapSettingsRet,
+                    map<string, vector<string> >& mapMultiSettingsRet)
+{
+    boost::filesystem::ifstream streamConfig(GetConfigFile(chainName));
+    if (!streamConfig.good())
+        return false;
+
+    set<string> setOptions;
+    setOptions.insert("*");
+
+    for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it)
+    {
+        // Don't overwrite existing settings so command line settings override komodo.conf
+        string strKey = string("-") + it->string_key;
+        if (mapSettingsRet.count(strKey) == 0)
+        {
+            mapSettingsRet[strKey] = it->value[0];
+            // interpret nofoo=1 as foo=0 (and nofoo=0 as foo=1) as long as foo not set)
+            InterpretNegativeSetting(strKey, mapSettingsRet);
+        }
+        mapMultiSettingsRet[strKey].push_back(it->value[0]);
+    }
+    return true;
+}
+
 #ifndef _WIN32
 boost::filesystem::path GetPidFile()
 {
-    boost::filesystem::path pathPidFile(GetArg("-pid", "komodod.pid"));
+    boost::filesystem::path pathPidFile(GetArg("-pid", "verusd.pid"));
     if (!pathPidFile.is_complete()) pathPidFile = GetDataDir() / pathPidFile;
     return pathPidFile;
 }
@@ -988,7 +1141,7 @@ std::string LicenseInfo()
            "\n" +
            FormatParagraph(_("This is experimental software.")) + "\n" +
            "\n" +
-           FormatParagraph(_("Distributed under the MIT software license, see the accompanying file COPYING or <http://www.opensource.org/licenses/mit-license.php>.")) + "\n" +
+           FormatParagraph(_("Distributed under the MIT software license, see the accompanying file COPYING or <https://www.opensource.org/licenses/mit-license.php>.")) + "\n" +
            "\n" +
            FormatParagraph(_("This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit <https://www.openssl.org/> and cryptographic software written by Eric Young.")) +
            "\n";

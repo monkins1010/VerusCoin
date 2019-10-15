@@ -15,6 +15,8 @@
 #include "asn/Secp256k1FingerprintContents.h"
 #include "asn/OCTET_STRING.h"
 #include "include/cJSON.h"
+#include "include/sha256.h"
+#include "include/ripemd-160.h"
 #include "include/secp256k1/include/secp256k1.h"
 #include "cryptoconditions.h"
 #include "internal.h"
@@ -81,6 +83,25 @@ static unsigned char *secp256k1Fingerprint(const CC *cond) {
 }
 
 
+static bool cc_secp256k1IsPKHash(const unsigned char *publicKey)
+{
+    if (!publicKey)
+    {
+        return 0;
+    }
+
+    assert(SECP256K1_PK_SIZE == 33);
+    static uint8_t zcheck[33] = {0};
+
+    // not all zero in first 20, all zero from that to the end means we assume this is a hash and carries the public key with the signature
+    if (memcmp(publicKey, zcheck, 20) && !memcmp(publicKey + 20, zcheck + 20, SECP256K1_PK_SIZE - 20))
+    {
+        return 1;
+    }
+    return 0;
+}
+
+
 int secp256k1Verify(CC *cond, CCVisitor visitor) {
     if (cond->type->typeId != CC_Secp256k1Type.typeId) return 1;
     initVerify();
@@ -89,8 +110,56 @@ int secp256k1Verify(CC *cond, CCVisitor visitor) {
 
     // parse pubkey
     secp256k1_pubkey pk;
-    rc = secp256k1_ec_pubkey_parse(ec_ctx_verify, &pk, cond->publicKey, SECP256K1_PK_SIZE);
+
+    if (cc_secp256k1IsPKHash(cond->publicKey))
+    {
+        bool pkHashMatch = 0;
+        unsigned char *shaHash = calloc(1,32);
+        unsigned char *ripemdHash = calloc(1, 20);
+
+        sha256(cond->signature + SECP256K1_SIG_SIZE, SECP256K1_PK_SIZE, shaHash);
+        hash160(shaHash, 32, ripemdHash);
+        
+        // if hash is not a hash of the public key, return false
+        if (!memcmp(cond->publicKey, ripemdHash, 20))
+        {
+            pkHashMatch = 1;
+        }
+
+        free(ripemdHash);
+        free(shaHash);
+
+        if (!pkHashMatch)
+        {
+            return 0;
+        }
+        rc = secp256k1_ec_pubkey_parse(ec_ctx_verify, &pk, cond->signature + SECP256K1_SIG_SIZE, SECP256K1_PK_SIZE);
+    }
+    else
+    {
+        rc = secp256k1_ec_pubkey_parse(ec_ctx_verify, &pk, cond->publicKey, SECP256K1_PK_SIZE);
+    }
+
     if (rc != 1) return 0;
+
+    // parse signature
+    secp256k1_ecdsa_signature sig;
+    rc = secp256k1_ecdsa_signature_parse_compact(ec_ctx_verify, &sig, cond->signature);
+    if (rc != 1) return 0;
+
+    // Only accepts lower S signatures
+    rc = secp256k1_ecdsa_verify(ec_ctx_verify, &sig, visitor.msg, &pk);
+    if (rc != 1) return 0;
+
+    return 1;
+}
+
+
+int secp256k1VerifyValidOnly(CC *cond, CCVisitor visitor) {
+    if (cond->type->typeId != CC_Secp256k1Type.typeId) return 1;
+    initVerify();
+
+    int rc;
 
     // parse siganature
     secp256k1_ecdsa_signature sig;
@@ -98,7 +167,7 @@ int secp256k1Verify(CC *cond, CCVisitor visitor) {
     if (rc != 1) return 0;
 
     // Only accepts lower S signatures
-    rc = secp256k1_ecdsa_verify(ec_ctx_verify, &sig, visitor.msg, &pk);
+    rc = secp256k1_ecdsa_verify_validonly(ec_ctx_verify, &sig, visitor.msg);
     if (rc != 1) return 0;
 
     return 1;
@@ -114,6 +183,20 @@ int cc_secp256k1VerifyTreeMsg32(const CC *cond, const unsigned char *msg32) {
         return 0;
     }
     CCVisitor visitor = {&secp256k1Verify, msg32, 0, NULL};
+    int out = cc_visit(cond, visitor);
+    return out;
+}
+
+
+int cc_secp256k1VerifyTreeMsg32_PartialCheck(const CC *cond, const unsigned char *msg32) {
+    int subtypes = cc_typeMask(cond);
+    if (subtypes & (1 << CC_PrefixType.typeId) &&
+        subtypes & (1 << CC_Secp256k1Type.typeId)) {
+        // No support for prefix currently, due to pending protocol decision on
+        // how to combine message and prefix into 32 byte hash
+        return 0;
+    }
+    CCVisitor visitor = {&secp256k1VerifyValidOnly, msg32, 0, NULL};
     int out = cc_visit(cond, visitor);
     return out;
 }
@@ -135,7 +218,34 @@ typedef struct CCSecp256k1SigningData {
 static int secp256k1Sign(CC *cond, CCVisitor visitor) {
     if (cond->type->typeId != CC_Secp256k1) return 1;
     CCSecp256k1SigningData *signing = (CCSecp256k1SigningData*) visitor.context;
-    if (0 != memcmp(cond->publicKey, signing->pk, SECP256K1_PK_SIZE)) return 1;
+
+    bool pkHashMatch = 0;
+
+    // if we don't match, check if it is a pkhash
+    if (memcmp(cond->publicKey, signing->pk, SECP256K1_PK_SIZE))
+    {
+        // no hash match if not a possible hash
+        if (!cc_secp256k1IsPKHash(cond->publicKey))
+        {
+            return 1;
+        }
+
+        // we will sign a node if either the keys match, or the node holds a KeyID of the public key followed by zeros, which is a sha256+ripemd hash of the contents
+        unsigned char *shaHash = calloc(1,32);
+        unsigned char *ripemdHash = calloc(1, 20);
+
+        sha256(signing->pk, SECP256K1_PK_SIZE, shaHash);
+        hash160(shaHash, 32, ripemdHash);
+        pkHashMatch = !memcmp(cond->publicKey, ripemdHash, 20);
+
+        free(ripemdHash);
+        free(shaHash);
+
+        if (!pkHashMatch)
+        {
+            return 1;
+        }
+    }
 
     secp256k1_ecdsa_signature sig;
     lockSign();
@@ -144,8 +254,17 @@ static int secp256k1Sign(CC *cond, CCVisitor visitor) {
 
     if (rc != 1) return 0;
 
-    if (!cond->signature) cond->signature = calloc(1, SECP256K1_SIG_SIZE);
-    secp256k1_ecdsa_signature_serialize_compact(ec_ctx_verify, cond->signature, &sig);
+    if (pkHashMatch)
+    {
+        if (!cond->signature) cond->signature = calloc(1, SECP256K1_SIG_SIZE + SECP256K1_PK_SIZE);
+        secp256k1_ecdsa_signature_serialize_compact(ec_ctx_verify, cond->signature, &sig);
+        memcpy(cond->signature + SECP256K1_SIG_SIZE, signing->pk, SECP256K1_PK_SIZE);
+    }
+    else
+    {
+        if (!cond->signature) cond->signature = calloc(1, SECP256K1_SIG_SIZE);
+        secp256k1_ecdsa_signature_serialize_compact(ec_ctx_verify, cond->signature, &sig);
+    }
 
     signing->nSigned++;
     return 1;
@@ -197,8 +316,19 @@ static CC *cc_secp256k1Condition(const unsigned char *publicKey, const unsigned 
     initVerify();
     secp256k1_pubkey spk;
     int rc = secp256k1_ec_pubkey_parse(ec_ctx_verify, &spk, publicKey, SECP256K1_PK_SIZE);
+
+    int signatureSize = SECP256K1_SIG_SIZE;
+
     if (!rc) {
-        return NULL;
+        // not all zero in first 20, all zero from that to the end means we assume this is a hash and carries the public key with the signature
+        if (cc_secp256k1IsPKHash(publicKey))
+        {
+            signatureSize += SECP256K1_PK_SIZE;
+        }
+        else
+        {
+            return NULL;
+        }
     }
 
     unsigned char *pk = 0, *sig = 0;
@@ -206,8 +336,8 @@ static CC *cc_secp256k1Condition(const unsigned char *publicKey, const unsigned 
     pk = calloc(1, SECP256K1_PK_SIZE);
     memcpy(pk, publicKey, SECP256K1_PK_SIZE);
     if (signature) {
-        sig = calloc(1, SECP256K1_SIG_SIZE);
-        memcpy(sig, signature, SECP256K1_SIG_SIZE);
+        sig = calloc(1, signatureSize);
+        memcpy(sig, signature, signatureSize);
     }
 
     CC *cond = cc_new(CC_Secp256k1);
@@ -225,9 +355,15 @@ static CC *secp256k1FromJSON(const cJSON *params, char *err) {
     if (!jsonGetHex(params, "publicKey", err, &pk, &pkSize)) goto END;
 
     if (!jsonGetHexOptional(params, "signature", err, &sig, &sigSize)) goto END;
-    if (sig && SECP256K1_SIG_SIZE != sigSize) {
-        strcpy(err, "signature has incorrect length");
-        goto END;
+
+    if (sig)
+    {
+        bool isPKHash = cc_secp256k1IsPKHash(pk);
+
+        if ((!isPKHash && SECP256K1_SIG_SIZE != sigSize) || (isPKHash && (SECP256K1_SIG_SIZE + SECP256K1_PK_SIZE) != sigSize)) {
+            strcpy(err, "signature has incorrect length");
+            goto END;
+        }
     }
 
     cond = cc_secp256k1Condition(pk, sig);
@@ -244,7 +380,12 @@ END:
 static void secp256k1ToJSON(const CC *cond, cJSON *params) {
     jsonAddHex(params, "publicKey", cond->publicKey, SECP256K1_PK_SIZE);
     if (cond->signature) {
-        jsonAddHex(params, "signature", cond->signature, SECP256K1_SIG_SIZE);
+        int sigSize = SECP256K1_SIG_SIZE;
+        if (cc_secp256k1IsPKHash(cond->publicKey))
+        {
+            sigSize += SECP256K1_PK_SIZE;
+        }
+        jsonAddHex(params, "signature", cond->signature, sigSize);
     }
 }
 
@@ -265,7 +406,16 @@ static Fulfillment_t *secp256k1ToFulfillment(const CC *cond) {
     Secp256k1Fulfillment_t *sec = &ffill->choice.secp256k1Sha256;
 
     OCTET_STRING_fromBuf(&sec->publicKey, cond->publicKey, SECP256K1_PK_SIZE);
-    OCTET_STRING_fromBuf(&sec->signature, cond->signature, SECP256K1_SIG_SIZE);
+
+    // not all zero in first 20, all zero from that to the end means we assume this is a hash and carries the public key with the signature
+    if (cc_secp256k1IsPKHash(cond->publicKey))
+    {
+        OCTET_STRING_fromBuf(&sec->signature, cond->signature, SECP256K1_SIG_SIZE + SECP256K1_PK_SIZE);
+    }
+    else
+    {
+        OCTET_STRING_fromBuf(&sec->signature, cond->signature, SECP256K1_SIG_SIZE);
+    }
     return ffill;
 }
 

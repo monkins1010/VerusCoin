@@ -1,7 +1,6 @@
 *** Warning: Do not assume Tor support does the correct thing in Komodo; better Tor support is a future feature goal. ***
 
 TOR SUPPORT IN ZCASH
-====================
 
 It is possible to run Komodo as a Tor hidden service, and connect to such services.
 
@@ -147,3 +146,10 @@ Now use komodo-cli to verify there is only a single peer connection.
 To connect to multiple Tor nodes, use:
 
 	./komodod -onion=127.0.0.1:9050 -addnode=zctestseie6wxgio.onion -dnsseed=0 -onlynet=onion
+=======
+TOR SUPPORT IN ZCASH
+====================
+
+This document has been relocated to https://zcash.readthedocs.io/en/latest/rtd_pages/tor.html
+
+The source for this document is available at https://gitlab.com/zcash-docs/zcash-docs/blob/master/source/rtd_pages/tor.rst

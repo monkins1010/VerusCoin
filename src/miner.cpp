@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "miner.h"
 #ifdef ENABLE_MINING
@@ -31,9 +31,7 @@
 #include "ui_interface.h"
 #include "util.h"
 #include "utilmoneystr.h"
-#ifdef ENABLE_WALLET
-#include "wallet/wallet.h"
-#endif
+#include "validationinterface.h"
 
 #include "zcash/Address.hpp"
 #include "transaction_builder.h"
@@ -46,6 +44,11 @@
 #include <functional>
 #endif
 #include <mutex>
+
+#include "pbaas/pbaas.h"
+#include "pbaas/notarization.h"
+#include "rpc/pbaasrpc.h"
+#include "transaction_builder.h"
 
 using namespace std;
 
@@ -124,6 +127,13 @@ extern uint64_t ASSETCHAINS_REWARD[ASSETCHAINS_MAX_ERAS], ASSETCHAINS_TIMELOCKGT
 extern const char *ASSETCHAINS_ALGORITHMS[];
 extern int32_t VERUS_MIN_STAKEAGE, ASSETCHAINS_ALGO, ASSETCHAINS_EQUIHASH, ASSETCHAINS_VERUSHASH, ASSETCHAINS_LASTERA, ASSETCHAINS_LWMAPOS, ASSETCHAINS_NONCESHIFT[], ASSETCHAINS_HASHESPERROUND[];
 extern char ASSETCHAINS_SYMBOL[KOMODO_ASSETCHAIN_MAXLEN];
+extern uint160 ASSETCHAINS_CHAINID;
+extern uint160 VERUS_CHAINID;
+extern std::string VERUS_CHAINNAME;
+extern int32_t PBAAS_STARTBLOCK, PBAAS_ENDBLOCK;
+extern string PBAAS_HOST, PBAAS_USERPASS, ASSETCHAINS_RPCHOST, ASSETCHAINS_RPCCREDENTIALS;;
+extern int32_t PBAAS_PORT;
+extern uint16_t ASSETCHAINS_RPCPORT;
 extern std::string NOTARY_PUBKEY,ASSETCHAINS_OVERRIDE_PUBKEY;
 void vcalc_sha256(char deprecated[(256 >> 3) * 2 + 1],uint8_t hash[256 >> 3],uint8_t *src,int32_t len);
 
@@ -140,20 +150,126 @@ int32_t komodo_staked(CMutableTransaction &txNew,uint32_t nBits,uint32_t *blockt
 int32_t verus_staked(CBlock *pBlock, CMutableTransaction &txNew, uint32_t &nBits, arith_uint256 &hashResult, uint8_t *utxosig, CPubKey &pk);
 int32_t komodo_notaryvin(CMutableTransaction &txNew,uint8_t *notarypub33);
 
-CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount, bool isStake)
+void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int &nExtraNonce, bool buildMerkle, uint32_t *pSaveBits)
+{
+    // Update nExtraNonce
+    static uint256 hashPrevBlock;
+    if (hashPrevBlock != pblock->hashPrevBlock)
+    {
+        nExtraNonce = 0;
+        hashPrevBlock = pblock->hashPrevBlock;
+    }
+    ++nExtraNonce;
+
+    if (pSaveBits)
+    {
+        *pSaveBits = pblock->nBits;
+    }
+
+    int32_t nHeight = pindexPrev->GetHeight() + 1;
+
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight) >= CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3)
+    {
+        // coinbase should already be finalized in the new version
+        if (buildMerkle)
+        {
+            pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+        }
+
+        UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
+
+        uint256 mmvRoot;
+        {
+            LOCK(cs_main);
+            // set the PBaaS header
+            ChainMerkleMountainView mmv = chainActive.GetMMV();
+            mmvRoot = mmv.GetRoot();
+        }
+
+        pblock->AddUpdatePBaaSHeader(mmvRoot);
+
+        // POS blocks have already had their solution space filled, and there is no actual extra nonce, extradata is used
+        // for POS proof, so don't modify it
+        if (!pblock->IsVerusPOSBlock())
+        {
+            uint8_t dummy;
+            // clear extra data to allow adding more PBaaS headers
+            pblock->SetExtraData(&dummy, 0);
+
+            // combine blocks and set compact difficulty if necessary
+            uint32_t savebits;
+            if ((savebits = ConnectedChains.CombineBlocks(*pblock)) && pSaveBits)
+            {
+                arith_uint256 ours, merged;
+                ours.SetCompact(pblock->nBits);
+                merged.SetCompact(savebits);
+                if (merged > ours)
+                {
+                    *pSaveBits = savebits;
+                }
+            }
+
+            // extra nonce is kept in the header, not in the coinbase any longer
+            // this allows instant spend transactions to use coinbase funds for
+            // inputs by ensuring that once final, the coinbase transaction hash
+            // will not continue to change
+            CDataStream s(SER_NETWORK, PROTOCOL_VERSION);
+            s << nExtraNonce;
+            std::vector<unsigned char> vENonce(s.begin(), s.end());
+
+            assert(pblock->ExtraDataLen() >= vENonce.size());
+            pblock->SetExtraData(vENonce.data(), vENonce.size());
+        }
+    }
+    else
+    {
+        // finalize input of coinbase
+        CMutableTransaction txcb(pblock->vtx[0]);
+        txcb.vin[0].scriptSig = (CScript() << nHeight << CScriptNum(nExtraNonce)) + COINBASE_FLAGS;
+        assert(txcb.vin[0].scriptSig.size() <= 100);
+        pblock->vtx[0] = txcb;
+        if (buildMerkle)
+        {
+            pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+        }
+
+        UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
+    }
+}
+
+CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _scriptPubKeyIn, int32_t gpucount, bool isStake)
 {
     CScript scriptPubKeyIn(_scriptPubKeyIn);
 
-    CPubKey pk = CPubKey();
-    std::vector<std::vector<unsigned char>> vAddrs;
-    txnouttype txT;
-    if (Solver(scriptPubKeyIn, txT, vAddrs))
+    // instead of one scriptPubKeyIn, we take a vector of them along with relative weight. each is assigned a percentage of the block subsidy and
+    // mining reward based on its weight relative to the total
+    std::vector<pair<int, CScript>> minerOutputs = scriptPubKeyIn.size() ? std::vector<pair<int, CScript>>({make_pair((int)1, scriptPubKeyIn)}) : std::vector<pair<int, CScript>>();
+
+    // TODO: when we accept a parameter of the minerOutputs vector, remove this comment but not the check
+    CTxDestination firstDestination;
+    if (!(scriptPubKeyIn.size() && ConnectedChains.SetLatestMiningOutputs(minerOutputs, firstDestination) || isStake))
     {
-        if (txT == TX_PUBKEY)
-            pk = CPubKey(vAddrs[0]);
+        fprintf(stderr,"%s: Must have valid miner outputs, including script with valid PK or PKH destination.\n", __func__);
+        return NULL;
     }
 
-    uint64_t deposits; int32_t isrealtime,kmdheight; uint32_t blocktime; const CChainParams& chainparams = Params();
+    if (minerOutputs.size())
+    {
+        int64_t shareCheck = 0;
+        for (auto output : minerOutputs)
+        {
+            shareCheck += output.first;
+            if (shareCheck < 0 || shareCheck > INT_MAX)
+            {
+                fprintf(stderr,"Invalid miner outputs share specifications\n");
+                return NULL;
+            }
+        }
+    }
+
+    CPubKey pk = boost::apply_visitor<GetPubKeyForPubKey>(GetPubKeyForPubKey(), firstDestination);
+
+    uint64_t deposits; int32_t isrealtime,kmdheight; uint32_t blocktime;
     //fprintf(stderr,"create new block\n");
     // Create new block
     if ( gpucount < 0 )
@@ -165,13 +281,27 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
         return NULL;
     }
     CBlock *pblock = &pblocktemplate->block; // pointer for convenience
-     // -regtest only: allow overriding block.nVersion with
+
+    // set version according to the current tip height, add solution if it is
+    // VerusHash
+    if (ASSETCHAINS_ALGO == ASSETCHAINS_VERUSHASH)
+    {
+        pblock->nSolution.resize(Eh200_9.SolutionWidth);
+    }
+    else
+    {
+        pblock->nSolution.clear();
+    }
+    pblock->SetVersionByHeight(chainActive.LastTip()->GetHeight() + 1);
+
+    // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
-    if (Params().MineBlocksOnDemand())
+    if (chainparams.MineBlocksOnDemand())
         pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
     
-    // Add dummy coinbase tx as first transaction
+    // Add dummy coinbase tx placeholder as first transaction
     pblock->vtx.push_back(CTransaction());
+
     pblocktemplate->vTxFees.push_back(-1); // updated at end
     pblocktemplate->vTxSigOps.push_back(-1); // updated at end
     
@@ -193,10 +323,18 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
     // Collect memory pool transactions into the block
     CAmount nFees = 0;
 
+    // if this is a reserve currency, update the currency state from the coinbase of the last block
+    bool isVerusActive = IsVerusActive();
+    CPBaaSChainDefinition &thisChain = ConnectedChains.ThisChain();
+    CCoinbaseCurrencyState currencyState = CCoinbaseCurrencyState(CCurrencyState(thisChain.conversion, thisChain.premine, 0, 0, 0), 0, 0, CReserveOutput(), 0, 0, 0);
+    CAmount exchangeRate;
+
     // we will attempt to spend any cheats we see
     CTransaction cheatTx;
     boost::optional<CTransaction> cheatSpend;
     uint256 cbHash;
+
+    extern CWallet *pwalletMain;
 
     CBlockIndex* pindexPrev = 0;
     {
@@ -205,7 +343,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
         const int nHeight = pindexPrev->GetHeight() + 1;
         const Consensus::Params &consensusParams = chainparams.GetConsensus();
         uint32_t consensusBranchId = CurrentEpochBranchId(nHeight, consensusParams);
-        bool sapling = NetworkUpgradeActive(nHeight, consensusParams, Consensus::UPGRADE_SAPLING);
+        bool sapling = consensusParams.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_SAPLING);
 
         const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();
         uint32_t proposedTime = GetAdjustedTime();
@@ -249,7 +387,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
         {
             // get the block and see if there is a cheat candidate for the stake tx
             CBlock b;
-            if (!(fHavePruned && !(ppast->nStatus & BLOCK_HAVE_DATA) && ppast->nTx > 0) && ReadBlockFromDisk(b, ppast, 1))
+            if (!(fHavePruned && !(ppast->nStatus & BLOCK_HAVE_DATA) && ppast->nTx > 0) && ReadBlockFromDisk(b, ppast, chainparams.GetConsensus(), 1))
             {
                 CTransaction &stakeTx = b.vtx[b.vtx.size() - 1];
 
@@ -269,7 +407,6 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                     // send to the same pub key as the destination of this block reward
                     if (MakeCheatEvidence(mtx, b.vtx[0], voutNum, cheatTx))
                     {
-                        extern CWallet *pwalletMain;
                         LOCK(pwalletMain->cs_wallet);
                         TransactionBuilder tb = TransactionBuilder(consensusParams, nHeight);
                         cb = b.vtx[0];
@@ -288,7 +425,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
 
                         if (hasInput)
                         {
-                            // this is a send from a t-address to a sapling address, which we don't have an ovk for. 
+                            // this is a send from a t-address to a sapling address, which we don't have an ovk for.
                             // Instead, generate a common one from the HD seed. This ensures the data is
                             // recoverable, at least for us, while keeping it logically separate from the ZIP 32
                             // Sapling key hierarchy, which the user might not be using.
@@ -302,7 +439,15 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
 
                                 tb.AddOpRet(mtx.vout[mtx.vout.size() - 1].scriptPubKey);
 
-                                cheatSpend = tb.Build();
+                                TransactionBuilderResult buildResult(tb.Build());
+                                if (!buildResult.IsError() && buildResult.IsTx())
+                                {
+                                    cheatSpend = buildResult.GetTxOrThrow();
+                                }
+                                else
+                                {
+                                    LogPrintf("Error building cheat catcher transaction: %s\n", buildResult.GetError().c_str());
+                                }
                             }
                         }
                     }
@@ -325,11 +470,562 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
             }
         }
 
-        // now add transactions from the mem pool
+        //
+        // Now start solving the block
+        //
+
+        uint64_t nBlockSize = 1000;             // initial size
+        uint64_t nBlockTx = 1;                  // number of transactions - always have a coinbase
+        uint32_t autoTxSize = 0;                // extra transaction overhead that we will add while creating the block
+        int nBlockSigOps = 100;
+
+        // VerusPoP staking transaction data
+        CMutableTransaction txStaked;           // if this is a stake operation, the staking transaction that goes at the end
+        uint32_t nStakeTxSize = 0;              // serialized size of the stake transaction
+
+        // if this is not for mining, first determine if we have a right to bother
+        if (isStake)
+        {
+            uint64_t txfees,utxovalue; uint32_t txtime; uint256 utxotxid; int32_t i,siglen,numsigs,utxovout; uint8_t utxosig[128],*ptr;
+            txStaked = CreateNewContextualCMutableTransaction(Params().GetConsensus(), nHeight);
+
+            //if ( blocktime > pindexPrev->GetMedianTimePast()+60 )
+            //    blocktime = pindexPrev->GetMedianTimePast() + 60;
+            if (ASSETCHAINS_LWMAPOS != 0)
+            {
+                uint32_t nBitsPOS;
+                arith_uint256 posHash;
+
+                siglen = verus_staked(pblock, txStaked, nBitsPOS, posHash, utxosig, pk);
+                blocktime = GetAdjustedTime();
+
+                // change the default scriptPubKeyIn to the same output script exactly as the staking transaction
+                // TODO: improve this and just implement stake guard here rather than keeping this legacy
+                if (siglen > 0)
+                    scriptPubKeyIn = CScript(txStaked.vout[0].scriptPubKey);
+            }
+            else
+            {
+                siglen = komodo_staked(txStaked, pblock->nBits, &blocktime, &txtime, &utxotxid, &utxovout, &utxovalue, utxosig);
+            }
+
+            if (siglen <= 0)
+            {
+                return NULL;
+            }
+
+            pblock->nTime = blocktime;
+            nStakeTxSize = GetSerializeSize(txStaked, SER_NETWORK, PROTOCOL_VERSION);
+            nBlockSize += nStakeTxSize;
+
+            // get the public key and make a miner output if needed for this
+            if (!minerOutputs.size())
+            {
+                minerOutputs.push_back(make_pair((int)1, txStaked.vout[0].scriptPubKey));
+                txnouttype typeRet;
+                std::vector<std::vector<unsigned char>> vSolutions;
+                if (Solver(txStaked.vout[0].scriptPubKey, typeRet, vSolutions))
+                {
+                    if (typeRet == TX_PUBKEY)
+                    {
+                        pk = CPubKey(vSolutions[0]);
+                    }
+                    else
+                    {
+                        pwalletMain->GetPubKey(CKeyID(uint160(vSolutions[0])), pk);
+                    }
+                }
+                ConnectedChains.SetLatestMiningOutputs(minerOutputs, firstDestination);
+            }
+        }
+
+        ConnectedChains.AggregateChainTransfers(firstDestination, nHeight);
+
+        // Now the coinbase -
+        // A PBaaS coinbase must have some additional outputs to enable certain chain state and functions to be properly
+        // validated. All but currency state and the first chain definition are either optional or not valid on non-fractional reserve PBaaS blockchains
+        // All of these are instant spend outputs that have no maturity wait time and may be spent in the same block.
+        //
+        // 1. (required) currency state - current state of currency supply and optionally reserve, premine, etc. This is primarily a data output to provide
+        //    cross check for coin minting and burning operations, making it efficient to determine up-to-date supply, reserves, and conversions. To provide
+        //    an extra level of supply cross-checking and fast data retrieval, this is part of all PBaaS chains' protocol, not just reserves.
+        //    This output also includes reserve and native amounts for total conversions, less fees, of any conversions between Verus reserve and the
+        //    native currency.
+        //
+        // 2. (block 1 required) chain definition - in order to confirm the amount of coins converted and issued within the possible range, before chain start,
+        //    new PBaaS chains have a zero-amount, unspendable chain definition output.
+        //
+        // 3. (block 1 optional) initial import utxo - for any chain with conversion or pre-conversion, the first coinbase must include an initial import utxo. 
+        //    Pre-conversions are handled on the launch chain before the PBaaS chain starts, so they are an additional output, which begins
+        //    as a fixed amount and is spent with as many outputs as necessary to the recipients of the pre-conversion transactions when those pre-conversions
+        //    are imported. All pre-converted outputs get their source currency from a thread that starts with this output in block 1.
+        //
+        // 4. (block 1 optional) initial export utxo - reserve chains, or any chain that will use exports to another chain must have an initial export utxo, any chain
+        //    may have one, but currently, they can only be spent with valid exports, which only occur on reserve chains
+        //
+        // 5. (optional) notarization output - in order to ensure that notarization can occur independent of the availability of fungible
+        //    coins on the network, and also that the notarization can provide a spendable finalization output and possible reward
+        //
+        // In addition, each PBaaS block can be mined with optional, fee-generating transactions. Inporting transactions from the reserve chain or sending
+        // exported transactions to the reserve chain are optional fee-generating steps that would be easy to do when running multiple daemons.
+        // The types of transactions miners/stakers may facilitate or create for fees are as follows:
+        //
+        // 1. Earned notarization of Verus chain - spends the notarization instant out. must be present and spend the notarization output if there is a notarization output
+        //
+        // 2. Imported transactions from the export thread for this PBaaS chain on the Verus blockchain - imported transactions must spend the import utxo
+        //    thread, represent the export from the alternate chain which spends the export output from the prior import transaction, carry a notary proof, and
+        //    include outputs that map to each of its inputs on the source chain. Outputs can include unconverted reserve outputs only on fractional
+        //    reserve chains, pre-converted outputs for any chain with launch conversion, and post launch outputs to be converted on fractional reserve
+        //    chains. Each are handled in the following way:
+        //      a. Unconverted outputs are left as outputs to the intended destination of Verus reserve token and do not pass through the coinbase
+        //      b. Pre-converted outputs require that the import transaction spend the last pre-conversion output starting at block 1 as the source for
+        //         pre-converted currency.
+        //
+        // 3. Zero or more aggregated exports that combine individual cross-chain transactions and reserve transfer outputs for export to the Verus chain. 
+        //
+        // 4. Conversion distribution transactions for all native and reserve currency conversions, including reserve transfer outputs without conversion as
+        //    a second step for reserve transfers that have conversion included. Any remaining pre-converted reserve must always remain in a change output
+        //    until it is exhausted
+        CTxOut premineOut, chainDefinitionOut, importThreadOut, exportThreadOut, currencyStateOut, notarizationOut;
+        CMutableTransaction newNotarizationTx, newConversionOutputTx;
+
+        // size of conversion tx
+        std::vector<CInputDescriptor> conversionInputs;
+
+        // if we are a PBaaS chain, first make sure we don't start prematurely, and if
+        // we should make an earned notarization, make it and set index to non-zero value
+        int32_t notarizationTxIndex = 0;                            // index of notarization if it is added
+        int32_t conversionTxIndex = 0;                              // index of conversion transaction if it is added
+
+        // export transactions can be created here by aggregating all pending transfer requests and either getting 10 or more together, or
+        // waiting n (10) blocks since the last one. each export must spend the output of the one before it
+        std::vector<CMutableTransaction> exportTransactions;
+
+        // all transaction outputs requesting conversion to another currency (PBaaS fractional reserve only)
+        // these will be used to calculate conversion price, fees, and generate coinbase conversion output as well as the
+        // conversion output transaction
+        std::vector<CTxOut> reserveConversionTo;
+        std::vector<CTxOut> reserveConversionFrom;
+
+        int64_t pbaasTransparentIn = 0;
+        int64_t pbaasTransparentOut = 0;
+        int64_t blockSubsidy = GetBlockSubsidy(nHeight, consensusParams);
+
+        uint160 thisChainID = ConnectedChains.ThisChain().GetChainID();
+
+        uint256 mmrRoot;
+        vector<CInputDescriptor> notarizationInputs;
+
+        // used as scratch for making CCs, should be reinitialized each time
+        CCcontract_info CC;
+        CCcontract_info *cp;
+        vector<CTxDestination> vKeys;
+        CPubKey pkCC;
+
+        // Create coinbase tx and set up the null input with height
+        CMutableTransaction coinbaseTx = CreateNewContextualCMutableTransaction(consensusParams, nHeight);
+        coinbaseTx.vin.push_back(CTxIn(uint256(), (uint32_t)-1, CScript() << nHeight << OP_0));
+
+        // default outputs for mining and before stake guard or fee calculation
+        // store the relative weight in the amount output to convert later to a relative portion
+        // of the reward + fees
+        for (auto &spk : minerOutputs)
+        {
+            coinbaseTx.vout.push_back(CTxOut(spk.first, spk.second));
+        }
+
+        // we will update amounts and fees later, but convert the guarded output now for validity checking and size estimate
+        if (isStake)
+        {
+            // if there is a specific destination, use it
+            CTransaction stakeTx(txStaked);
+            CStakeParams p;
+            if (ValidateStakeTransaction(stakeTx, p, false))
+            {
+                if (!p.pk.IsValid())
+                {
+                    LogPrintf("CreateNewBlock: invalid public key\n");
+                    fprintf(stderr,"CreateNewBlock: invalid public key\n");
+                    return NULL;
+                }
+                for (auto &cbOutput : coinbaseTx.vout)
+                {
+                    if (!MakeGuardedOutput(cbOutput.nValue, p.pk, stakeTx, cbOutput))
+                    {
+                        LogPrintf("CreateNewBlock: failed to make GuardedOutput on staking coinbase\n");
+                        fprintf(stderr,"CreateNewBlock: failed to make GuardedOutput on staking coinbase\n");
+                        return NULL;
+                    }
+                }
+            }
+            else
+            {
+                LogPrintf("CreateNewBlock: invalid stake transaction\n");
+                fprintf(stderr,"CreateNewBlock: invalid stake transaction\n");
+                return NULL;
+            }
+        }
+
+        CAmount totalEmission = blockSubsidy;
+
+        // make earned notarization only if this is not the notary chain and we have enough subsidy
+        if (!isVerusActive)
+        {
+            // if we don't have a connected root PBaaS chain, we can't properly check
+            // and notarize the start block, so we have to pass the notarization and cross chain steps
+            bool notaryConnected = ConnectedChains.IsVerusPBaaSAvailable() && ConnectedChains.notaryChainHeight >= PBAAS_STARTBLOCK;
+
+            // get current currency state differently, depending on height
+            if (nHeight == 1)
+            {
+                blockSubsidy -= GetBlockOnePremine();       // separate subsidy, which can go to miner, from premine
+
+                if (!notaryConnected)
+                {
+                    // cannt make block 1 unless we can properly notarize that the launch chain is past the start block
+                    return NULL;
+                }
+
+                // if some amount of pre-conversion was allowed
+                if (thisChain.maxpreconvert)
+                {
+                    // this is invalid
+                    if (thisChain.conversion <= 0)
+                    {
+                        return NULL;
+                    }
+
+                    // get the total amount pre-converted
+                    UniValue params(UniValue::VARR);
+                    params.push_back(ASSETCHAINS_CHAINID.GetHex());
+
+                    UniValue result;
+                    try
+                    {
+                        result = find_value(RPCCallRoot("getinitialcurrencystate", params), "result");
+                    } catch (exception e)
+                    {
+                        result = NullUniValue;
+                    }
+
+                    if (!result.isNull())
+                    {
+                        currencyState = CCoinbaseCurrencyState(result);
+                    }
+
+                    if (result.isNull() || !currencyState.IsValid())
+                    {
+                        // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
+                        LogPrintf("Unable to get initial currency state to create block.\n");
+                        printf("Failure to get initial currency state. Cannot create block.\n");
+                        return NULL;
+                    }
+
+                    if (currencyState.ReserveIn < ConnectedChains.ThisChain().minpreconvert)
+                    {
+                        // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
+                        LogPrintf("This chain did not receive the minimum currency contributions and cannot launch. Pre-launch contributions to this chain can be refunded.\n");
+                        printf("This chain did not receive the minimum currency contributions and cannot launch. Pre-launch contributions to this chain can be refunded.\n");
+                        return NULL;
+                    }
+                }
+
+                // add needed block one coinbase outputs
+                // send normal reward to the miner, premine to the address in the chain definition, and pre-converted to the
+                // import thread out
+                if (GetBlockOnePremine())
+                {
+                    premineOut = CTxOut(GetBlockOnePremine(), GetScriptForDestination(CTxDestination(ConnectedChains.ThisChain().address)));
+                    coinbaseTx.vout.push_back(premineOut);
+                }
+
+                // chain definition - always
+                // make the chain definition output
+                vKeys.clear();
+                cp = CCinit(&CC, EVAL_PBAASDEFINITION);
+
+                // send this to EVAL_PBAASDEFINITION address as a destination, locked by the default pubkey
+                pkCC = CPubKey(ParseHex(CC.CChexstr));
+                vKeys.push_back(CKeyID(CCrossChainRPCData::GetConditionID(thisChainID, EVAL_PBAASDEFINITION)));
+                thisChain.preconverted = currencyState.ReserveIn;   // update known, preconverted amount
+
+                chainDefinitionOut = MakeCC1of1Vout(EVAL_PBAASDEFINITION, 0, pkCC, vKeys, thisChain);
+                coinbaseTx.vout.push_back(chainDefinitionOut);
+
+                // import - only spendable for reserve currency or currency with preconversion to allow import of conversions, this output will include
+                // all pre-converted coins and all pre-conversion fees, denominated in Verus reserve currency
+                vKeys.clear();
+                cp = CCinit(&CC, EVAL_CROSSCHAIN_IMPORT);
+
+                pkCC = CPubKey(ParseHex(CC.CChexstr));
+
+                // import thread is specific to the chain importing from
+                vKeys.push_back(CKeyID(CCrossChainRPCData::GetConditionID(ConnectedChains.notaryChain.GetChainID(), EVAL_CROSSCHAIN_IMPORT)));
+
+                // log import of all reserve in as well as the fees that are passed through the initial ReserveOut in the initial import
+                importThreadOut = MakeCC1of1Vout(EVAL_CROSSCHAIN_IMPORT, 
+                                                 currencyState.ReserveToNative(thisChain.preconverted, thisChain.conversion), pkCC, vKeys, 
+                                                 CCrossChainImport(ConnectedChains.NotaryChain().GetChainID(), currencyState.ReserveIn + currencyState.ReserveOut.nValue));
+
+                coinbaseTx.vout.push_back(importThreadOut);
+
+                // export - currently only spendable for reserve currency, but added for future capabilities
+                vKeys.clear();
+                cp = CCinit(&CC, EVAL_CROSSCHAIN_EXPORT);
+
+                pkCC = CPubKey(ParseHex(CC.CChexstr));
+                vKeys.push_back(CKeyID(CCrossChainRPCData::GetConditionID(ConnectedChains.NotaryChain().GetChainID(), EVAL_CROSSCHAIN_EXPORT)));
+
+                exportThreadOut = MakeCC1of1Vout(EVAL_CROSSCHAIN_EXPORT, 0, pkCC, vKeys, 
+                                                 CCrossChainExport(ConnectedChains.NotaryChain().GetChainID(), 0, 0, 0));
+
+                coinbaseTx.vout.push_back(exportThreadOut);
+            }
+            else
+            {
+                CBlock block;
+                assert(nHeight > 1);
+                currencyState = ConnectedChains.GetCurrencyState(nHeight - 1);
+                currencyState.Fees = 0;
+                currencyState.ConversionFees = 0;
+                currencyState.NativeIn = 0;
+                currencyState.ReserveIn = 0;
+                currencyState.ReserveOut.nValue = 0;
+
+                if (!currencyState.IsValid())
+                {
+                    // we should be able to get a valid currency state, if not, fail
+                    LogPrintf("Unable to get initial currency state to create block #%d.\n", nHeight);
+                    printf("Failure to get initial currency state. Cannot create block #%d.\n", nHeight);
+                    return NULL;
+                }
+            }
+
+            // update the currency state to include emissions before calculating conversions
+            // premine is an emission that is factored in before this
+            currencyState.UpdateWithEmission(totalEmission);
+
+            // always add currency state output for coinbase
+            vKeys.clear();
+            cp = CCinit(&CC, EVAL_CURRENCYSTATE);
+
+            CPubKey currencyOutPK(ParseHex(cp->CChexstr));
+            vKeys.push_back(CTxDestination(CKeyID(CCrossChainRPCData::GetConditionID(thisChainID, EVAL_CURRENCYSTATE))));
+
+            // make an output that either carries zero coins pre-converting, or the initial supply for block 1, conversion amounts will be adjusted later
+            currencyStateOut = MakeCC1of1Vout(EVAL_CURRENCYSTATE, 0, currencyOutPK, vKeys, currencyState);
+
+            coinbaseTx.vout.push_back(currencyStateOut);
+
+            if (notaryConnected)
+            {
+                // if we have access to our notary daemon
+                // create a notarization if we would qualify, and add it to the mempool and block
+                CTransaction prevTx, crossTx, lastConfirmed, lastImportTx;
+                ChainMerkleMountainView mmv = chainActive.GetMMV();
+                mmrRoot = mmv.GetRoot();
+                int32_t confirmedInput = -1;
+                CTxDestination confirmedDest;
+                if (CreateEarnedNotarization(newNotarizationTx, notarizationInputs, prevTx, crossTx, lastConfirmed, nHeight, &confirmedInput, &confirmedDest))
+                {
+                    // we have a valid, earned notarization transaction. we still need to complete it as follows:
+                    // 1. Add an instant-spend input from the coinbase transaction to fund the finalization output
+                    //
+                    // 2. if we are spending finalization outputs, create an output of the same amount as a finalization output 
+                    //    plus and any excess from the other, orphaned finalizations to the creator of the confirmed notarization
+                    //
+                    // 3. make sure the currency state is correct
+
+                    // input should either be 0 or PBAAS_MINNOTARIZATIONOUTPUT + all finalized outputs
+                    // we will add PBAAS_MINNOTARIZATIONOUTPUT from a coinbase instant spend in all cases and double that when it is 0 for block 1
+                    for (const CTxIn& txin : newNotarizationTx.vin)
+                    {
+                        const uint256& prevHash = txin.prevout.hash;
+                        const CCoins *pcoins = view.AccessCoins(prevHash);
+                        pbaasTransparentIn += pcoins && (pcoins->vout.size() > txin.prevout.n) ? pcoins->vout[txin.prevout.n].nValue : 0;
+                    }
+
+                    // calculate the amount that will be sent to the confirmed notary address
+                    // this will only be non-zero if we have finalized inputs
+                    if (pbaasTransparentIn > 0)
+                    {
+                        pbaasTransparentOut = pbaasTransparentIn - PBAAS_MINNOTARIZATIONOUTPUT;
+                    }
+
+                    if (pbaasTransparentOut)
+                    {
+                        // if we are on a non-fungible chain, reward out must be unspendable
+                        // make a normal output to the confirmed notary with the excess right behind the op_return
+                        // TODO: make this a cc out to only allow spending on a fungible chain
+                        CTxOut rewardOut = CTxOut(pbaasTransparentOut, GetScriptForDestination(confirmedDest));
+                        newNotarizationTx.vout.insert(newNotarizationTx.vout.begin() + newNotarizationTx.vout.size() - 1, rewardOut);
+                    }
+
+                    // make the earned notarization coinbase output
+                    vKeys.clear();
+                    cp = CCinit(&CC, EVAL_EARNEDNOTARIZATION);
+
+                    // send this to EVAL_EARNEDNOTARIZATION address as a destination, locked by the default pubkey
+                    pkCC = CPubKey(ParseHex(cp->CChexstr));
+                    vKeys.push_back(CTxDestination(CKeyID(CCrossChainRPCData::GetConditionID(VERUS_CHAINID, EVAL_EARNEDNOTARIZATION))));
+
+                    int64_t needed = nHeight == 1 ? PBAAS_MINNOTARIZATIONOUTPUT << 1 : PBAAS_MINNOTARIZATIONOUTPUT;
+
+                    // output duplicate notarization as coinbase output for instant spend to notarization
+                    // the output amount is considered part of the total value of this coinbase
+                    CPBaaSNotarization pbn(newNotarizationTx);
+                    notarizationOut = MakeCC1of1Vout(EVAL_EARNEDNOTARIZATION, needed, pkCC, vKeys, pbn);
+                    coinbaseTx.vout.push_back(notarizationOut);
+
+                    // place the notarization
+                    pblock->vtx.push_back(CTransaction(newNotarizationTx));
+                    pblocktemplate->vTxFees.push_back(0);
+                    pblocktemplate->vTxSigOps.push_back(-1); // updated at end
+                    nBlockSize += GetSerializeSize(newNotarizationTx, SER_NETWORK, PROTOCOL_VERSION);
+                    notarizationTxIndex = pblock->vtx.size() - 1;
+                    nBlockTx++;
+                }
+                else if (nHeight == 1)
+                {
+                    // failed to notarize at block 1
+                    return NULL;
+                }
+
+                // if we have a last confirmed notarization, then check for new imports from the notary chain
+                if (lastConfirmed.vout.size())
+                {
+                    // we need to find the last unspent import transaction
+                    std::vector<CAddressUnspentDbEntry> unspentOutputs;
+
+                    bool found = false;
+
+                    // we cannot get export to a chain that has shut down
+                    // if the chain definition is spent, a chain is inactive
+                    if (GetAddressUnspent(CKeyID(CCrossChainRPCData::GetConditionID(ConnectedChains.NotaryChain().GetChainID(), EVAL_CROSSCHAIN_IMPORT)), 1, unspentOutputs))
+                    {
+                        // if one spends the prior one, get the one that is not spent
+                        for (auto txidx : unspentOutputs)
+                        {
+                            uint256 blkHash;
+                            CTransaction itx;
+                            if (myGetTransaction(txidx.first.txhash, lastImportTx, blkHash) &&
+                                CCrossChainImport(lastImportTx).IsValid() &&
+                                (lastImportTx.IsCoinBase() ||
+                                (myGetTransaction(lastImportTx.vin[0].prevout.hash, itx, blkHash) &&
+                                CCrossChainImport(itx).IsValid())))
+                            {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (found && pwalletMain)
+                    {
+                        UniValue params(UniValue::VARR);
+                        UniValue param(UniValue::VOBJ);
+
+                        CMutableTransaction txTemplate = CreateNewContextualCMutableTransaction(Params().GetConsensus(), nHeight);
+                        int i;
+                        for (i = 0; i < lastImportTx.vout.size(); i++)
+                        {
+                            COptCCParams p;
+                            if (lastImportTx.vout[i].scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_CROSSCHAIN_IMPORT)
+                            {
+                                txTemplate.vin.push_back(CTxIn(lastImportTx.GetHash(), (uint32_t)i));
+                                break;
+                            }
+                        }
+
+                        UniValue result = NullUniValue;
+                        if (i < lastImportTx.vout.size())
+                        {
+                            param.push_back(Pair("name", thisChain.name));
+                            param.push_back(Pair("lastimporttx", EncodeHexTx(lastImportTx)));
+                            param.push_back(Pair("lastconfirmednotarization", EncodeHexTx(lastConfirmed)));
+                            param.push_back(Pair("importtxtemplate", EncodeHexTx(txTemplate)));
+                            param.push_back(Pair("totalimportavailable", lastImportTx.vout[txTemplate.vin[0].prevout.n].nValue));
+                            params.push_back(param);
+
+                            try
+                            {
+                                result = find_value(RPCCallRoot("getlatestimportsout", params), "result");
+                            } catch (exception e)
+                            {
+                                printf("Could not get latest imports from notary chain\n");
+                            }
+                        }
+
+                        if (result.isArray() && result.size())
+                        {
+                            LOCK(pwalletMain->cs_wallet);
+
+                            uint256 lastImportHash = lastImportTx.GetHash();
+                            for (int i = 0; i < result.size(); i++)
+                            {
+                                CTransaction itx;
+                                if (result[i].isStr() && DecodeHexTx(itx, result[i].get_str()) && itx.vin.size() && itx.vin[0].prevout.hash == lastImportHash)
+                                {
+                                    // sign the transaction spending the last import and add to mempool
+                                    CMutableTransaction mtx(itx);
+                                    CCrossChainImport cci(lastImportTx);
+
+                                    bool signSuccess;
+                                    SignatureData sigdata;
+                                    CAmount value;
+                                    const CScript *pScriptPubKey;
+
+                                    signSuccess = ProduceSignature(
+                                        TransactionSignatureCreator(pwalletMain, &itx, 0, lastImportTx.vout[itx.vin[0].prevout.n].nValue, SIGHASH_ALL), lastImportTx.vout[itx.vin[0].prevout.n].scriptPubKey, sigdata, consensusBranchId);
+
+                                    if (!signSuccess)
+                                    {
+                                        break;
+                                    }
+
+                                    UpdateTransaction(mtx, 0, sigdata);
+                                    itx = CTransaction(mtx);
+
+                                    // commit to mempool and remove any conflicts
+                                    std::list<CTransaction> removed;
+                                    mempool.removeConflicts(itx, removed);
+                                    CValidationState state;
+                                    if (!myAddtomempool(itx, &state))
+                                    {
+                                        LogPrintf("Failed to add import transactions to the mempool due to: %s\n", state.GetRejectReason().c_str());
+                                        printf("Failed to add import transactions to the mempool due to: %s\n", state.GetRejectReason().c_str());
+                                        break;  // if we failed to add one, the others will fail to spend it
+                                    }
+
+                                    lastImportTx = itx;
+                                    lastImportHash = itx.GetHash();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            currencyState.UpdateWithEmission(totalEmission);
+        }
+
+        // coinbase should have all necessary outputs (TODO: timelock is not supported or finished yet)
+        uint32_t nCoinbaseSize = GetSerializeSize(coinbaseTx, SER_NETWORK, PROTOCOL_VERSION);
+        nBlockSize += nCoinbaseSize;
+
+        // now create the priority array, including market order reserve transactions, since they can always execute, leave limits for later
+        bool haveReserveTransactions = false;
+        uint32_t reserveExchangeLimitSize = 0;
+        std::vector<const CTransaction *> limitOrders;
+
+        // now add transactions from the mem pool to the priority heap
         for (CTxMemPool::indexed_transaction_set::iterator mi = mempool.mapTx.begin();
              mi != mempool.mapTx.end(); ++mi)
         {
             const CTransaction& tx = mi->GetTx();
+            uint256 hash = tx.GetHash();
             
             int64_t nLockTimeCutoff = (STANDARD_LOCKTIME_VERIFY_FLAGS & LOCKTIME_MEDIAN_TIME_PAST)
             ? nMedianTimePast
@@ -350,15 +1046,44 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
             COrphan* porphan = NULL;
             double dPriority = 0;
             CAmount nTotalIn = 0;
+            CAmount nTotalReserveIn = 0;
             bool fMissingInputs = false;
+            CReserveTransactionDescriptor rtxd;
+            bool isReserve = mempool.IsKnownReserveTransaction(hash, rtxd);
+
             if (tx.IsCoinImport())
             {
                 CAmount nValueIn = GetCoinImportValue(tx);
                 nTotalIn += nValueIn;
                 dPriority += (double)nValueIn * 1000;  // flat multiplier
             } else {
+                // separate limit orders to be added later, we add them at the end, failed fill or kills are normal transactions, consider them reserve txs
+                if (isReserve && rtxd.IsReserveExchange() && rtxd.IsLimit())
+                {
+                    // if we might expire, refresh and check again
+                    if (rtxd.IsFillOrKill())
+                    {
+                        rtxd = CReserveTransactionDescriptor(tx, view, nHeight);
+                        mempool.PrioritiseReserveTransaction(rtxd, currencyState);
+                    }
+
+                    // if is is a failed conversion, drop through
+                    if (!rtxd.IsFillOrKillFail())
+                    {
+                        limitOrders.push_back(&tx);
+                        reserveExchangeLimitSize += GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
+                        continue;
+                    }
+                }
+                if (isReserve)
+                {
+                    nTotalIn += rtxd.nativeIn;
+                    nTotalReserveIn += rtxd.reserveIn;
+                }
                 BOOST_FOREACH(const CTxIn& txin, tx.vin)
                 {
+                    CAmount nValueIn = 0, nReserveValueIn = 0;
+
                     // Read prev transaction
                     if (!view.HaveCoins(txin.prevout.hash))
                     {
@@ -384,18 +1109,35 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                         }
                         mapDependers[txin.prevout.hash].push_back(porphan);
                         porphan->setDependsOn.insert(txin.prevout.hash);
-                        nTotalIn += mempool.mapTx.find(txin.prevout.hash)->GetTx().vout[txin.prevout.n].nValue;
+
+                        const CTransaction &otx = mempool.mapTx.find(txin.prevout.hash)->GetTx();
+                        // consider reserve outputs and set priority according to their value here as well
+                        if (!isReserve)
+                        {
+                            nTotalIn += otx.vout[txin.prevout.n].nValue;
+                        }
                         continue;
                     }
                     const CCoins* coins = view.AccessCoins(txin.prevout.hash);
                     assert(coins);
 
-                    CAmount nValueIn = coins->vout[txin.prevout.n].nValue;
-                    nTotalIn += nValueIn;
+                    // consider reserve outputs and set priority according to their value here as well
+                    if (isReserve)
+                    {
+                        nReserveValueIn = coins->vout[txin.prevout.n].ReserveOutValue();
+                    }
 
+                    nValueIn = coins->vout[txin.prevout.n].nValue;
                     int nConf = nHeight - coins->nHeight;
 
-                    dPriority += (double)nValueIn * nConf;
+                    dPriority += ((double)((nReserveValueIn ? currencyState.ReserveToNative(nReserveValueIn) : 0) + nValueIn)) * nConf;
+
+                    // reserve is totaled differently
+                    if (!isReserve)
+                    {
+                        nTotalIn += nValueIn;
+                        nTotalReserveIn += nReserveValueIn;
+                    }
                 }
                 nTotalIn += tx.GetShieldedValueIn();
             }
@@ -406,11 +1148,21 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
             unsigned int nTxSize = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
             dPriority = tx.ComputePriority(dPriority, nTxSize);
             
-            uint256 hash = tx.GetHash();
-            mempool.ApplyDeltas(hash, dPriority, nTotalIn);
-            
-            CFeeRate feeRate(nTotalIn-tx.GetValueOut(), nTxSize);
-            
+            CAmount nDeltaValueIn = nTotalIn + (nTotalReserveIn ? currencyState.ReserveToNative(nTotalReserveIn) : 0);
+            CAmount nFeeValueIn = nDeltaValueIn;
+            mempool.ApplyDeltas(hash, dPriority, nDeltaValueIn);
+
+            CAmount nativeEquivalentOut = 0;
+
+            // if there is reserve in, or this is a reserveexchange transaction, calculate fee properly
+            if (isReserve & rtxd.reserveOut)
+            {
+                // if this has reserve currency out, convert it to native currency for fee calculation
+                nativeEquivalentOut = currencyState.ReserveToNative(rtxd.reserveOut);
+            }
+
+            CFeeRate feeRate(isReserve ? rtxd.AllFeesAsNative(currencyState) + currencyState.ReserveToNative(rtxd.reserveConversionFees) + rtxd.nativeConversionFees : nFeeValueIn - (tx.GetValueOut() + nativeEquivalentOut), nTxSize);
+
             if (porphan)
             {
                 porphan->dPriority = dPriority;
@@ -420,16 +1172,22 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 vecPriority.push_back(TxPriority(dPriority, feeRate, &(mi->GetTx())));
         }
 
-        // Collect transactions into block
-        uint64_t nBlockSize = 1000;
-        uint64_t nBlockTx = 0;
+        //
+        // NOW -- REALLY START TO FILL THE BLOCK
+        //
+        // estimate number of conversions, staking transaction size, and additional coinbase outputs that will be required
+
+        int32_t maxPreLimitOrderBlockSize = nBlockMaxSize - std::min(nBlockMaxSize >> 2, reserveExchangeLimitSize);
+
         int64_t interest;
-        int nBlockSigOps = 100;
         bool fSortedByFee = (nBlockPrioritySize <= 0);
-        
+
         TxPriorityCompare comparer(fSortedByFee);
         std::make_heap(vecPriority.begin(), vecPriority.end(), comparer);
-        
+
+        std::vector<int> reservePositions;
+
+        // now loop and fill the block, leaving space for reserve exchange limit transactions
         while (!vecPriority.empty())
         {
             // Take highest priority transaction off the priority queue:
@@ -442,9 +1200,9 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
             
             // Size limits
             unsigned int nTxSize = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
-            if (nBlockSize + nTxSize >= nBlockMaxSize-512) // room for extra autotx
+            if (nBlockSize + nTxSize >= maxPreLimitOrderBlockSize - autoTxSize) // room for extra autotx
             {
-                //fprintf(stderr,"nBlockSize %d + %d nTxSize >= %d nBlockMaxSize\n",(int32_t)nBlockSize,(int32_t)nTxSize,(int32_t)nBlockMaxSize);
+                //fprintf(stderr,"nBlockSize %d + %d nTxSize >= %d maxPreLimitOrderBlockSize\n",(int32_t)nBlockSize,(int32_t)nTxSize,(int32_t)maxPreLimitOrderBlockSize);
                 continue;
             }
             
@@ -465,6 +1223,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 //fprintf(stderr,"fee rate skip\n");
                 continue;
             }
+
             // Prioritise by fee once past the priority size or we run out of high-priority
             // transactions:
             if (!fSortedByFee &&
@@ -480,7 +1239,11 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 //fprintf(stderr,"dont have inputs\n");
                 continue;
             }
-            CAmount nTxFees = view.GetValueIn(chainActive.LastTip()->GetHeight(),&interest,tx,chainActive.LastTip()->nTime)-tx.GetValueOut();
+            CAmount nTxFees;
+            CReserveTransactionDescriptor txDesc;
+            bool isReserve = mempool.IsKnownReserveTransaction(hash, txDesc);
+
+            nTxFees = view.GetValueIn(chainActive.LastTip()->GetHeight(),&interest,tx,chainActive.LastTip()->nTime)-tx.GetValueOut();
             
             nTxSigOps += GetP2SHSigOpCount(tx, view);
             if (nBlockSigOps + nTxSigOps >= MAX_BLOCK_SIGOPS-1)
@@ -488,6 +1251,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 //fprintf(stderr,"B nBlockSigOps %d + %d nTxSigOps >= %d MAX_BLOCK_SIGOPS-1\n",(int32_t)nBlockSigOps,(int32_t)nTxSigOps,(int32_t)MAX_BLOCK_SIGOPS);
                 continue;
             }
+
             // Note that flags: we don't want to set mempool/IsStandard()
             // policy here, but we still have to ensure that the block we
             // create only contains transactions that are valid in new blocks.
@@ -498,7 +1262,15 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 //fprintf(stderr,"context failure\n");
                 continue;
             }
+
             UpdateCoins(tx, view, nHeight);
+
+            if (isReserve)
+            {
+                nTxFees = 0;            // we will adjust all reserve transaction fees when we get an accurate conversion rate
+                reservePositions.push_back(nBlockTx);
+                haveReserveTransactions = true;
+            }
 
             BOOST_FOREACH(const OutputDescription &outDescription, tx.vShieldedOutput) {
                 sapling_tree.append(outDescription.cm);
@@ -535,139 +1307,436 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
                 }
             }
         }
-        
-        nLastBlockTx = nBlockTx;
-        nLastBlockSize = nBlockSize;
-        blocktime = 1 + std::max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
-        //pblock->nTime = blocktime + 1;
-        pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, Params().GetConsensus());
 
-        int32_t stakeHeight = chainActive.Height() + 1;
+        // if we have reserve transactions or limit transactions to add:
+        // 1. collect all the reserve transactions from the block and add them to the reserveFills vector
+        // 2. add all limit transactions to the orders vector
+        // 3. match orders to include all limit transactions that qualify and will fit
+        CAmount conversionFees = 0;
 
-        //LogPrintf("CreateNewBlock(): total size %u blocktime.%u nBits.%08x\n", nBlockSize,blocktime,pblock->nBits);
-        if ( ASSETCHAINS_SYMBOL[0] != 0 && isStake )
+        if (haveReserveTransactions)
         {
-            uint64_t txfees,utxovalue; uint32_t txtime; uint256 utxotxid; int32_t i,siglen,numsigs,utxovout; uint8_t utxosig[128],*ptr;
-            CMutableTransaction txStaked = CreateNewContextualCMutableTransaction(Params().GetConsensus(), stakeHeight);
+            std::vector<CReserveTransactionDescriptor> reserveFills;
+            std::vector<const CTransaction *> expiredFillOrKills;
+            std::vector<const CTransaction *> noFills;
+            std::vector<const CTransaction *> rejects;
 
-            //if ( blocktime > pindexPrev->GetMedianTimePast()+60 )
-            //    blocktime = pindexPrev->GetMedianTimePast() + 60;
-            if (ASSETCHAINS_LWMAPOS != 0)
+            // identify all reserve transactions in the block to calculate fees
+            for (int i = 0; i < reservePositions.size(); i++)
             {
-                uint32_t nBitsPOS;
-                arith_uint256 posHash;
-
-                siglen = verus_staked(pblock, txStaked, nBitsPOS, posHash, utxosig, pk);
-                blocktime = GetAdjustedTime();
-
-                // change the scriptPubKeyIn to the same output script exactly as the staking transaction
-                if (siglen > 0)
-                    scriptPubKeyIn = CScript(txStaked.vout[0].scriptPubKey);
-            }
-            else
-            {
-                siglen = komodo_staked(txStaked, pblock->nBits, &blocktime, &txtime, &utxotxid, &utxovout, &utxovalue, utxosig);
-            }
-
-            if ( siglen > 0 )
-            {
-                CAmount txfees;
-
-                // after Sapling, stake transactions have a fee, but it is recovered in the reward
-                // this ensures that a rebroadcast goes through quickly to begin staking again
-                txfees = sapling ? DEFAULT_STAKE_TXFEE : 0;
-
-                pblock->vtx.push_back(txStaked);
-                pblocktemplate->vTxFees.push_back(txfees);
-                pblocktemplate->vTxSigOps.push_back(GetLegacySigOpCount(txStaked));
-                nFees += txfees;
-                pblock->nTime = blocktime;
-                //printf("staking PoS ht.%d t%u lag.%u\n",(int32_t)chainActive.LastTip()->GetHeight()+1,blocktime,(uint32_t)(GetAdjustedTime() - (blocktime-13)));
-            } else return(0); //fprintf(stderr,"no utxos eligible for staking\n");
-        }
-        
-        // Create coinbase tx
-        CMutableTransaction txNew = CreateNewContextualCMutableTransaction(consensusParams, nHeight);
-        txNew.vin.resize(1);
-        txNew.vin[0].prevout.SetNull();
-        txNew.vin[0].scriptSig = CScript() << nHeight << OP_0;
-
-        txNew.vout.resize(1);
-        txNew.vout[0].scriptPubKey = scriptPubKeyIn;
-        txNew.vout[0].nValue = GetBlockSubsidy(nHeight,consensusParams) + nFees;
-
-        // once we get to Sapling, enable CC StakeGuard for stake transactions
-        if (isStake && sapling)
-        {
-            // if there is a specific destination, use it
-            CTransaction stakeTx = pblock->vtx[pblock->vtx.size() - 1];
-            CStakeParams p;
-            if (ValidateStakeTransaction(stakeTx, p, false))
-            {
-                if (!p.pk.IsValid() || !MakeGuardedOutput(txNew.vout[0].nValue, p.pk, stakeTx, txNew.vout[0]))
+                CReserveTransactionDescriptor txDesc;
+                if (mempool.IsKnownReserveTransaction(pblock->vtx[reservePositions[i]].GetHash(), txDesc))
                 {
-                    fprintf(stderr,"CreateNewBlock: failed to make GuardedOutput on staking coinbase\n");
-                    return 0;
+                    reserveFills.push_back(txDesc);
                 }
             }
-            else
+
+            // now, we need to have room for the transaction which will spend the coinbase
+            // and output all conversions mined/staked
+            newConversionOutputTx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), nHeight);
+            newConversionOutputTx.vin.resize(1); // placeholder for size calculation
+
+            int64_t newBlockSize = nBlockSize;
+
+            // TODO:PBAAS - NEED TO ADD SIGOPS LIMIT TO THIS FOR HARDENING
+            CCoinbaseCurrencyState newState = currencyState.MatchOrders(limitOrders,
+                                                                        reserveFills,
+                                                                        expiredFillOrKills,
+                                                                        noFills,
+                                                                        rejects,
+                                                                        exchangeRate, nHeight, conversionInputs,
+                                                                        nBlockMaxSize - autoTxSize, &newBlockSize, &newConversionOutputTx);
+
+            // TODO:PBAAS - account for the edge case where we have too large expected fills and have no room
+            // for transactions that we would otherwise take
+            assert(reserveFills.size() >= reservePositions.size());
+
+            // create the conversion transaction and all outputs indicated by every single mined transaction
+            if (reserveFills.size())
             {
-                fprintf(stderr,"CreateNewBlock: invalid stake transaction\n");
-                return 0;
+                currencyState = newState;
+            }
+
+            int oldRPSize = reservePositions.size();
+
+            // add the rest of the reserve fills that have not yet been added to the block,
+            for (int i = oldRPSize; i < reserveFills.size(); i++)
+            {
+                // add these transactions to the block
+                reservePositions.push_back(nBlockTx);
+                pblock->vtx.push_back(*reserveFills[i].ptx);
+                const CTransaction &tx = pblock->vtx.back();
+
+                UpdateCoins(tx, view, nHeight);
+
+                BOOST_FOREACH(const OutputDescription &outDescription, tx.vShieldedOutput) {
+                    sapling_tree.append(outDescription.cm);
+                }
+
+                CAmount nTxFees = reserveFills[i].AllFeesAsNative(currencyState, exchangeRate);
+                uint32_t nTxSigOps = GetLegacySigOpCount(tx);
+
+                // size was already updated
+                pblocktemplate->vTxFees.push_back(nTxFees);
+                pblocktemplate->vTxSigOps.push_back(nTxSigOps);
+                ++nBlockTx;
+                nBlockSigOps += nTxSigOps;
+                nFees += nTxFees;
+            }
+
+            // update block size with the calculation from the function called, which includes all additional transactions, 
+            // but does not include the conversion transaction, since its final size is still unknown
+            nBlockSize = newBlockSize;
+
+            // fixup the transaction block template fees that were added before we knew the correct exchange rate and
+            // add them to the block fee total
+            for (int i = 0; i < oldRPSize; i++)
+            {
+                assert(pblocktemplate->vTxFees.size() > reservePositions[i]);
+                CAmount nTxFees = reserveFills[i].AllFeesAsNative(currencyState, exchangeRate);
+                pblocktemplate->vTxFees[reservePositions[i]] = nTxFees;
+                nFees += nTxFees;
+            }
+
+            // remake the newConversionOutputTx, right now, it has dummy inputs and placeholder outputs, just remake it correctly
+            newConversionOutputTx.vin.resize(1);
+            newConversionOutputTx.vout.clear();
+            conversionInputs.clear();
+
+            // keep one placeholder for txCoinbase output as input and remake with the correct exchange rate
+            for (auto fill : reserveFills)
+            {
+                fill.AddConversionInOuts(newConversionOutputTx, conversionInputs, exchangeRate, &currencyState);
             }
         }
 
-        txNew.nExpiryHeight = 0;
-        txNew.nLockTime = std::max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
+        // first calculate and distribute block rewards, including fees in the minerOutputs vector
+        CAmount rewardTotalShareAmount = 0;
+        CAmount rewardTotal = blockSubsidy + currencyState.ConversionFees + nFees;
+
+        CAmount rewardLeft = notarizationTxIndex ? rewardTotal - notarizationOut.nValue : rewardTotal;
+
+        for (auto &outputShare : minerOutputs)
+        {
+            rewardTotalShareAmount += outputShare.first;
+        }
+
+        int cbOutIdx;
+        for (cbOutIdx = 0; cbOutIdx < minerOutputs.size(); cbOutIdx++)
+        {
+            CAmount amount = (arith_uint256(rewardTotal) * arith_uint256(minerOutputs[cbOutIdx].first) / arith_uint256(rewardTotalShareAmount)).GetLow64();
+            if (rewardLeft <= amount || (cbOutIdx + 1) == minerOutputs.size())
+            {
+                amount = rewardLeft;
+            }
+            rewardLeft -= amount;
+            coinbaseTx.vout[cbOutIdx].nValue = amount;
+            // the only valid CC output we currently support on coinbases is stake guard, which does not need to be modified for this
+        }
+
+        // premineOut - done
+        if (premineOut.scriptPubKey.size())
+        {
+            cbOutIdx++;
+        }
+
+        // chainDefinitionOut - done
+        if (chainDefinitionOut.scriptPubKey.size())
+        {
+            cbOutIdx++;
+        }
+
+        // importThreadOut - done
+        if (importThreadOut.scriptPubKey.size())
+        {
+            cbOutIdx++;
+        }
+
+        // exportThreadOut - done
+        if (exportThreadOut.scriptPubKey.size())
+        {
+            cbOutIdx++;
+        }
+
+        // currencyStateOut - update currency state, output is present whether or not there is a conversion transaction
+        // the transaction itself pays no fees, but all conversion fees are included for each conversion transaction between its input and this output
+        if (currencyStateOut.scriptPubKey.size())
+        {
+            COptCCParams p;
+            currencyStateOut.scriptPubKey.IsPayToCryptoCondition(p);
+            p.vData[0] = currencyState.AsVector();
+            currencyStateOut.scriptPubKey.ReplaceCCParams(p);
+
+            if (conversionInputs.size())
+            {
+                CTransaction convertTx(newConversionOutputTx);
+                currencyStateOut.nValue = convertTx.GetValueOut();
+                currencyState.ReserveOut.nValue = convertTx.GetReserveValueOut();
+
+                // the coinbase is not finished, store index placeholder here now and fixup hash later
+                newConversionOutputTx.vin[0] = CTxIn(uint256(), cbOutIdx);
+            }
+            else
+            {
+                newConversionOutputTx.vin.clear();
+                newConversionOutputTx.vout.clear();
+            }
+
+            coinbaseTx.vout[cbOutIdx] = currencyStateOut;
+            cbOutIdx++;
+        }
+
+        // notarizationOut - update currencyState in notarization
+        if (notarizationTxIndex)
+        {
+            COptCCParams p;
+            int i;
+            for (i = 0; i < newNotarizationTx.vout.size(); i++)
+            {
+                if (newNotarizationTx.vout[i].scriptPubKey.IsPayToCryptoCondition(p) && p.evalCode == EVAL_EARNEDNOTARIZATION)
+                {
+                    break;
+                }
+            }
+            if (i >= newNotarizationTx.vout.size())
+            {
+                LogPrintf("CreateNewBlock: bad notarization\n");
+                fprintf(stderr,"CreateNewBlock: bad notarization\n");
+                return NULL;
+            }
+            CPBaaSNotarization nz(p.vData[0]);
+            nz.currencyState = currencyState;
+            p.vData[0] = nz.AsVector();
+            newNotarizationTx.vout[i].scriptPubKey.ReplaceCCParams(p);
+
+            notarizationOut.scriptPubKey.IsPayToCryptoCondition(p);
+            p.vData[0] = nz.AsVector();
+            notarizationOut.scriptPubKey.ReplaceCCParams(p);
+
+            coinbaseTx.vout[cbOutIdx] = notarizationOut;
+
+            // now that the coinbase is finished, finish and place conversion transaction before the stake transaction
+            newNotarizationTx.vin.push_back(CTxIn(uint256(), cbOutIdx));
+
+            cbOutIdx++;
+
+            pblock->vtx[notarizationTxIndex] = newNotarizationTx;
+        }
+
+        // this should be the end of the outputs
+        assert(cbOutIdx == coinbaseTx.vout.size());
+
+        nLastBlockTx = nBlockTx;
+        nLastBlockSize = nBlockSize;
+
+        blocktime = std::max(pindexPrev->GetMedianTimePast(), GetAdjustedTime());
+
+        pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, Params().GetConsensus());
+
+        coinbaseTx.nExpiryHeight = 0;
+        coinbaseTx.nLockTime = blocktime;
 
         if ( ASSETCHAINS_SYMBOL[0] == 0 && IS_KOMODO_NOTARY != 0 && My_notaryid >= 0 )
-            txNew.vout[0].nValue += 5000;
+            coinbaseTx.vout[0].nValue += 5000;
 
+        /*
         // check if coinbase transactions must be time locked at current subsidy and prepend the time lock
         // to transaction if so, cast for GTE operator
-        if ((uint64_t)(txNew.vout[0].nValue) >= ASSETCHAINS_TIMELOCKGTE)
+        CAmount cbValueOut = 0;
+        for (auto txout : coinbaseTx.vout)
+        {
+            cbValueOut += txout.nValue;
+        }
+        if (cbValueOut >= ASSETCHAINS_TIMELOCKGTE)
         {
             int32_t opretlen, p2shlen, scriptlen;
             CScriptExt opretScript = CScriptExt();
 
-            txNew.vout.resize(2);
+            coinbaseTx.vout.push_back(CTxOut());
 
             // prepend time lock to original script unless original script is P2SH, in which case, we will leave the coins
             // protected only by the time lock rather than 100% inaccessible
             opretScript.AddCheckLockTimeVerify(komodo_block_unlocktime(nHeight));
             if (scriptPubKeyIn.IsPayToScriptHash() || scriptPubKeyIn.IsPayToCryptoCondition())
             {
+                LogPrintf("CreateNewBlock: attempt to add timelock to pay2sh or pay2cc\n");
                 fprintf(stderr,"CreateNewBlock: attempt to add timelock to pay2sh or pay2cc\n");
                 return 0;
             }
             
             opretScript += scriptPubKeyIn;
 
-            txNew.vout[0].scriptPubKey = CScriptExt().PayToScriptHash(CScriptID(opretScript));
-            txNew.vout[1].scriptPubKey = CScriptExt().OpReturnScript(opretScript, OPRETTYPE_TIMELOCK);
-            txNew.vout[1].nValue = 0;
+            coinbaseTx.vout[0].scriptPubKey = CScriptExt().PayToScriptHash(CScriptID(opretScript));
+            coinbaseTx.vout.back().scriptPubKey = CScriptExt().OpReturnScript(opretScript, OPRETTYPE_TIMELOCK);
+            coinbaseTx.vout.back().nValue = 0;
         } // timelocks and commissions are currently incompatible due to validation complexity of the combination
         else if ( nHeight > 1 && ASSETCHAINS_SYMBOL[0] != 0 && ASSETCHAINS_OVERRIDE_PUBKEY33[0] != 0 && ASSETCHAINS_COMMISSION != 0 && (commission= komodo_commission((CBlock*)&pblocktemplate->block)) != 0 )
         {
             int32_t i; uint8_t *ptr;
-            txNew.vout.resize(2);
-            txNew.vout[1].nValue = commission;
-            txNew.vout[1].scriptPubKey.resize(35);
-            ptr = (uint8_t *)&txNew.vout[1].scriptPubKey[0];
+            coinbaseTx.vout.resize(2);
+            coinbaseTx.vout[1].nValue = commission;
+            coinbaseTx.vout[1].scriptPubKey.resize(35);
+            ptr = (uint8_t *)&coinbaseTx.vout[1].scriptPubKey[0];
             ptr[0] = 33;
             for (i=0; i<33; i++)
                 ptr[i+1] = ASSETCHAINS_OVERRIDE_PUBKEY33[i];
             ptr[34] = OP_CHECKSIG;
             //printf("autocreate commision vout\n");
         }
+        */
 
-        pblock->vtx[0] = txNew;
+        // finalize input of coinbase
+        coinbaseTx.vin[0].scriptSig = (CScript() << nHeight << CScriptNum(0)) + COINBASE_FLAGS;
+        assert(coinbaseTx.vin[0].scriptSig.size() <= 100);
+
+        // coinbase is done
+        pblock->vtx[0] = coinbaseTx;
+        uint256 cbHash = coinbaseTx.GetHash();
+
+        // if there is a conversion, update the correct coinbase hash and add it to the block
+        // we also need to sign the conversion transaction
+        if (newConversionOutputTx.vin.size() > 1)
+        {
+            // put the coinbase into the updated coins, since we will spend from it
+            UpdateCoins(pblock->vtx[0], view, nHeight);
+
+            newConversionOutputTx.vin[0].prevout.hash = cbHash;
+
+            CTransaction ncoTx(newConversionOutputTx);
+
+            // sign transaction for cb output and conversions
+            for (int i = 0; i < ncoTx.vin.size(); i++)
+            {
+                bool signSuccess;
+                SignatureData sigdata;
+                CAmount value;
+                const CScript *pScriptPubKey;
+
+                // if this is our coinbase input, different signing
+                if (i)
+                {
+                    pScriptPubKey = &conversionInputs[i - 1].scriptPubKey;
+                    value = conversionInputs[i - 1].nValue;
+                }
+                else
+                {
+                    pScriptPubKey = &coinbaseTx.vout[ncoTx.vin[i].prevout.n].scriptPubKey;
+                    value = coinbaseTx.vout[ncoTx.vin[i].prevout.n].nValue;
+                }
+
+                signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &ncoTx, i, value, SIGHASH_ALL), *pScriptPubKey, sigdata, consensusBranchId);
+
+                if (!signSuccess)
+                {
+                    if (ncoTx.vin[i].prevout.hash == coinbaseTx.GetHash())
+                    {
+                        LogPrintf("Coinbase conversion source tx id: %s\n", coinbaseTx.GetHash().GetHex().c_str());
+                        printf("Coinbase conversion source tx - amount: %lu, n: %d, id: %s\n", coinbaseTx.vout[ncoTx.vin[i].prevout.n].nValue, ncoTx.vin[i].prevout.n, coinbaseTx.GetHash().GetHex().c_str());
+                    }
+                    LogPrintf("CreateNewBlock: failure to sign conversion tx for input %d from output %d of %s\n", i, ncoTx.vin[i].prevout.n, ncoTx.vin[i].prevout.hash.GetHex().c_str());
+                    printf("CreateNewBlock: failure to sign conversion tx for input %d from output %d of %s\n", i, ncoTx.vin[i].prevout.n, ncoTx.vin[i].prevout.hash.GetHex().c_str());
+                    return NULL;
+                } else {
+                    UpdateTransaction(newConversionOutputTx, i, sigdata);
+                }
+            }
+
+            UpdateCoins(newConversionOutputTx, view, nHeight);
+            pblock->vtx.push_back(newConversionOutputTx);
+            pblocktemplate->vTxFees.push_back(0);
+            int txSigOps = GetLegacySigOpCount(newConversionOutputTx);
+            pblocktemplate->vTxSigOps.push_back(txSigOps);
+            nBlockSize += GetSerializeSize(newConversionOutputTx, SER_NETWORK, PROTOCOL_VERSION);
+            ++nBlockTx;
+            nBlockSigOps += txSigOps;
+        }
+
+        // if there is a stake transaction, add it to the very end
+        if (isStake)
+        {
+            UpdateCoins(txStaked, view, nHeight);
+            pblock->vtx.push_back(txStaked);
+            pblocktemplate->vTxFees.push_back(0);
+            int txSigOps = GetLegacySigOpCount(txStaked);
+            pblocktemplate->vTxSigOps.push_back(txSigOps);
+            // already added to the block size above
+            ++nBlockTx;
+            nBlockSigOps += txSigOps;
+        }
+
+        extern CWallet *pwalletMain;
+
+        // add final notarization and instant spend coinbase output hash fixup
+        if (notarizationTxIndex)
+        {
+            LOCK(pwalletMain->cs_wallet);
+
+            newNotarizationTx.vin.back().prevout.hash = cbHash;
+
+            CTransaction ntx(newNotarizationTx);
+
+            for (int i = 0; i < ntx.vin.size(); i++)
+            {
+                bool signSuccess;
+                SignatureData sigdata;
+                CAmount value;
+                const CScript *pScriptPubKey;
+
+                // if this is our coinbase input, we won't find it elsewhere
+                if (i < notarizationInputs.size())
+                {
+                    pScriptPubKey = &notarizationInputs[i].scriptPubKey;
+                    value = notarizationInputs[i].nValue;
+                }
+                else
+                {
+                    pScriptPubKey = &coinbaseTx.vout[ntx.vin[i].prevout.n].scriptPubKey;
+                    value = coinbaseTx.vout[ntx.vin[i].prevout.n].nValue;
+                }
+
+                signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &ntx, i, value, SIGHASH_ALL), *pScriptPubKey, sigdata, consensusBranchId);
+
+                if (!signSuccess)
+                {
+                    if (ntx.vin[i].prevout.hash == coinbaseTx.GetHash())
+                    {
+                        LogPrintf("Coinbase source tx id: %s\n", coinbaseTx.GetHash().GetHex().c_str());
+                        printf("Coinbase source tx - amount: %lu, n: %d, id: %s\n", coinbaseTx.vout[ntx.vin[i].prevout.n].nValue, ntx.vin[i].prevout.n, coinbaseTx.GetHash().GetHex().c_str());
+                    }
+                    LogPrintf("CreateNewBlock: failure to sign earned notarization for input %d from output %d of %s\n", i, ntx.vin[i].prevout.n, ntx.vin[i].prevout.hash.GetHex().c_str());
+                    printf("CreateNewBlock: failure to sign earned notarization for input %d from output %d of %s\n", i, ntx.vin[i].prevout.n, ntx.vin[i].prevout.hash.GetHex().c_str());
+                    return NULL;
+                } else {
+                    UpdateTransaction(newNotarizationTx, i, sigdata);
+                }
+            }
+            pblocktemplate->vTxSigOps[notarizationTxIndex] = GetLegacySigOpCount(newNotarizationTx);
+
+            // put now signed notarization back in the block
+            pblock->vtx[notarizationTxIndex] = newNotarizationTx;
+
+            LogPrintf("Coinbase source tx id: %s\n", coinbaseTx.GetHash().GetHex().c_str());
+            //printf("Coinbase source tx id: %s\n", coinbaseTx.GetHash().GetHex().c_str());
+            LogPrintf("adding notarization tx at height %d, index %d, id: %s\n", nHeight, notarizationTxIndex, newNotarizationTx.GetHash().GetHex().c_str());
+            //printf("adding notarization tx at height %d, index %d, id: %s\n", nHeight, notarizationTxIndex, mntx.GetHash().GetHex().c_str());
+            {
+                LOCK(cs_main);
+                for (auto input : newNotarizationTx.vin)
+                {
+                    LogPrintf("Earned notarization input n: %d, hash: %s, HaveCoins: %s\n", input.prevout.n, input.prevout.hash.GetHex().c_str(), pcoinsTip->HaveCoins(input.prevout.hash) ? "true" : "false");
+                    //printf("Earned notarization input n: %d, hash: %s, HaveCoins: %s\n", input.prevout.n, input.prevout.hash.GetHex().c_str(), pcoinsTip->HaveCoins(input.prevout.hash) ? "true" : "false");
+                }
+            }
+        }
+
+        pblock->vtx[0] = coinbaseTx;
         pblocktemplate->vTxFees[0] = -nFees;
+        pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
 
         // if not Verus stake, setup nonce, otherwise, leave it alone
         if (!isStake || ASSETCHAINS_LWMAPOS == 0)
         {
-            // Randomise nonce
+            // Randomize nonce
             arith_uint256 nonce = UintToArith256(GetRandHash());
 
             // Clear the top 16 and bottom 16 or 24 bits (for local use as thread flags and counters)
@@ -686,8 +1755,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
             UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
             pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, Params().GetConsensus());
         }
-        pblock->nSolution.clear();
-        pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
+
         if ( ASSETCHAINS_SYMBOL[0] == 0 && IS_KOMODO_NOTARY != 0 && My_notaryid >= 0 )
         {
             uint32_t r;
@@ -725,7 +1793,7 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
         {
             CValidationState state;
             //fprintf(stderr,"check validity\n");
-            if ( !TestBlockValidity(state, *pblock, pindexPrev, false, false)) // invokes CC checks
+            if ( !TestBlockValidity(state, chainparams, *pblock, pindexPrev, false, false)) // invokes CC checks
             {
                 throw std::runtime_error("CreateNewBlock(): TestBlockValidity failed");
             }
@@ -733,6 +1801,11 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
         }
     }
     //fprintf(stderr,"done new block\n");
+
+    // setup the header and buid the Merkle tree
+    unsigned int extraNonce;
+    IncrementExtraNonce(pblock, pindexPrev, extraNonce, true);
+
     return pblocktemplate.release();
 }
  
@@ -786,23 +1859,28 @@ CBlockTemplate* CreateNewBlock(const CScript& _scriptPubKeyIn, int32_t gpucount,
 
 #ifdef ENABLE_MINING
 
-void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& nExtraNonce)
+class MinerAddressScript : public CReserveScript
 {
-    // Update nExtraNonce
-    static uint256 hashPrevBlock;
-    if (hashPrevBlock != pblock->hashPrevBlock)
-    {
-        nExtraNonce = 0;
-        hashPrevBlock = pblock->hashPrevBlock;
+    // CReserveScript requires implementing this function, so that if an
+    // internal (not-visible) wallet address is used, the wallet can mark it as
+    // important when a block is mined (so it then appears to the user).
+    // If -mineraddress is set, the user already knows about and is managing the
+    // address, so we don't need to do anything here.
+    void KeepScript() {}
+};
+
+void GetScriptForMinerAddress(boost::shared_ptr<CReserveScript> &script)
+{
+    CTxDestination addr = DecodeDestination(GetArg("-mineraddress", ""));
+    if (!IsValidDestination(addr)) {
+        return;
     }
-    ++nExtraNonce;
-    unsigned int nHeight = pindexPrev->GetHeight()+1; // Height first in coinbase required for block.version=2
-    CMutableTransaction txCoinbase(pblock->vtx[0]);
-    txCoinbase.vin[0].scriptSig = (CScript() << nHeight << CScriptNum(nExtraNonce)) + COINBASE_FLAGS;
-    assert(txCoinbase.vin[0].scriptSig.size() <= 100);
-    
-    pblock->vtx[0] = txCoinbase;
-    pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+
+    boost::shared_ptr<MinerAddressScript> mAddr(new MinerAddressScript());
+    CKeyID keyID = boost::get<CKeyID>(addr);
+
+    script = mAddr;
+    script->reserveScript = CScript() << OP_DUP << OP_HASH160 << ToByteVector(keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
 }
 
 #ifdef ENABLE_WALLET
@@ -840,10 +1918,10 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, int32_t nHeight, 
             //scriptPubKey = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
         }
     }
-    return CreateNewBlock(scriptPubKey, gpucount, isStake);
+    return CreateNewBlock(Params(), scriptPubKey, gpucount, isStake);
 }
 
-void komodo_broadcast(CBlock *pblock,int32_t limit)
+void komodo_broadcast(const CBlock *pblock,int32_t limit)
 {
     int32_t n = 1;
     //fprintf(stderr,"broadcast new block t.%u\n",(uint32_t)time(NULL));
@@ -869,8 +1947,9 @@ static bool ProcessBlockFound(CBlock* pblock, CWallet& wallet, CReserveKey& rese
 static bool ProcessBlockFound(CBlock* pblock)
 #endif // ENABLE_WALLET
 {
+    int32_t height = chainActive.LastTip()->GetHeight()+1;
     LogPrintf("%s\n", pblock->ToString());
-    LogPrintf("generated %s height.%d\n", FormatMoney(pblock->vtx[0].vout[0].nValue),chainActive.LastTip()->GetHeight()+1);
+    LogPrintf("generated %s height.%d\n", FormatMoney(pblock->vtx[0].vout[0].nValue), height);
     
     // Found a solution
     {
@@ -886,7 +1965,7 @@ static bool ProcessBlockFound(CBlock* pblock)
                 fprintf(stderr,"%02x",((uint8_t *)&hash)[i]);
             fprintf(stderr," <- chainTip (stale)\n");
             
-            return error("KomodoMiner: generated block is stale");
+            return error("VerusMiner: generated block is stale");
         }
     }
     
@@ -911,8 +1990,8 @@ static bool ProcessBlockFound(CBlock* pblock)
 
     // Process this block the same as if we had received it from another node
     CValidationState state;
-    if (!ProcessNewBlock(1,chainActive.LastTip()->GetHeight()+1,state, NULL, pblock, true, NULL))
-        return error("KomodoMiner: ProcessNewBlock, block not accepted");
+    if (!ProcessNewBlock(1, chainActive.LastTip()->GetHeight()+1, state, Params(), NULL, pblock, true, NULL))
+        return error("VerusMiner: ProcessNewBlock, block not accepted");
     
     TrackMinedBlock(pblock->GetHash());
     komodo_broadcast(pblock,16);
@@ -926,9 +2005,10 @@ int32_t FOUND_BLOCK,KOMODO_MAYBEMINED;
 extern int32_t KOMODO_LASTMINED,KOMODO_INSYNC;
 int32_t roundrobin_delay;
 arith_uint256 HASHTarget,HASHTarget_POW;
+int32_t komodo_longestchain();
 
 // wait for peers to connect
-int32_t waitForPeers(const CChainParams &chainparams)
+void waitForPeers(const CChainParams &chainparams)
 {
     if (chainparams.MiningRequiresPeers())
     {
@@ -938,7 +2018,9 @@ int32_t waitForPeers(const CChainParams &chainparams)
             LOCK(cs_vNodes);
             fvNodesEmpty = vNodes.empty();
         }
-        if (fvNodesEmpty || IsNotInSync())
+        int longestchain = komodo_longestchain();
+        int lastlongest = 0;
+        if (fvNodesEmpty || IsNotInSync() || (longestchain != 0 && longestchain > chainActive.LastTip()->GetHeight()))
         {
             int loops = 0, blockDiff = 0, newDiff = 0;
             
@@ -951,8 +2033,9 @@ int32_t waitForPeers(const CChainParams &chainparams)
                     fvNodesEmpty = vNodes.empty();
                     loops = 0;
                     blockDiff = 0;
+                    lastlongest = 0;
                 }
-                if ((newDiff = IsNotInSync()) > 1)
+                else if ((newDiff = IsNotInSync()) > 0)
                 {
                     if (blockDiff != newDiff)
                     {
@@ -960,11 +2043,22 @@ int32_t waitForPeers(const CChainParams &chainparams)
                     }
                     else
                     {
-                        if (++loops <= 10)
+                        if (++loops <= 5)
                         {
                             MilliSleep(1000);
                         }
                         else break;
+                    }
+                    lastlongest = 0;
+                }
+                else if (!fvNodesEmpty && !IsNotInSync() && longestchain > chainActive.LastTip()->GetHeight())
+                {
+                    // the only thing may be that we are seeing a long chain that we'll never get
+                    // don't wait forever
+                    if (lastlongest == 0)
+                    {
+                        MilliSleep(3000);
+                        lastlongest = longestchain;
                     }
                 }
             } while (fvNodesEmpty || IsNotInSync());
@@ -1005,8 +2099,7 @@ void static VerusStaker(CWallet *pwallet)
 
     // Each thread has its own counter
     unsigned int nExtraNonce = 0;
-    std::vector<unsigned char> solnPlaceholder = std::vector<unsigned char>();
-    solnPlaceholder.resize(Eh200_9.SolutionWidth);
+
     uint8_t *script; uint64_t total,checktoshis; int32_t i,j;
 
     while ( (ASSETCHAIN_INIT == 0 || KOMODO_INITDONE == 0) ) //chainActive.Tip()->GetHeight() != 235300 &&
@@ -1026,14 +2119,16 @@ void static VerusStaker(CWallet *pwallet)
     } while (pindexPrev != pindexCur);
 
     try {
+        static int32_t lastStakingHeight = 0;
+
         while (true)
         {
             waitForPeers(chainparams);
             CBlockIndex* pindexPrev = chainActive.LastTip();
-            printf("Staking height %d for %s\n", pindexPrev->GetHeight() + 1, ASSETCHAINS_SYMBOL);
 
             // Create new block
             unsigned int nTransactionsUpdatedLast = mempool.GetTransactionsUpdated();
+
             if ( Mining_height != pindexPrev->GetHeight()+1 )
             {
                 Mining_height = pindexPrev->GetHeight()+1;
@@ -1048,11 +2143,21 @@ void static VerusStaker(CWallet *pwallet)
             if (Mining_height > VERUS_MIN_STAKEAGE)
                 ptr = CreateNewBlockWithKey(reservekey, Mining_height, 0, true);
 
+            // TODO - putting this output here tends to help mitigate announcing a staking height earlier than
+            // announcing the last block win when we start staking before a block's acceptance has been
+            // acknowledged by the mining thread - a better solution may be to put the output on the submission
+            // thread.
+            if ( ptr == 0 && Mining_height != lastStakingHeight )
+            {
+                printf("Staking height %d for %s\n", Mining_height, ASSETCHAINS_SYMBOL);
+            }
+            lastStakingHeight = Mining_height;
+
             if ( ptr == 0 )
             {
                 // wait to try another staking block until after the tip moves again
                 while ( chainActive.LastTip() == pindexPrev )
-                    sleep(1);
+                    MilliSleep(250);
                 continue;
             }
 
@@ -1075,13 +2180,6 @@ void static VerusStaker(CWallet *pwallet)
             // Search
             //
             int64_t nStart = GetTime();
-
-            // take up the necessary space for alignment
-            pblock->nSolution = solnPlaceholder;
-
-            // we don't use this, but IncrementExtraNonce is the function that builds the merkle tree
-            unsigned int nExtraNonce = 0;
-            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
 
             if (vNodes.empty() && chainparams.MiningRequiresPeers())
             {
@@ -1114,22 +2212,28 @@ void static VerusStaker(CWallet *pwallet)
 
             UpdateTime(pblock, consensusParams, pindexPrev);
 
-            ProcessBlockFound(pblock, *pwallet, reservekey);
-
-            LogPrintf("Using %s algorithm:\n", ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
-            LogPrintf("Staked block found  \n  hash: %s  \ntarget: %s\n", pblock->GetHash().GetHex(), hashTarget.GetHex());
-            printf("Found block %d \n", Mining_height );
-            printf("staking reward %.8f %s!\n", (double)subsidy / (double)COIN, ASSETCHAINS_SYMBOL);
-            arith_uint256 post;
-            post.SetCompact(pblock->GetVerusPOSTarget());
-            pindexPrev = get_chainactive(Mining_height - 100);
-            CTransaction &sTx = pblock->vtx[pblock->vtx.size()-1];
-            printf("POS hash: %s  \ntarget:   %s\n", 
-                CTransaction::_GetVerusPOSHash(&(pblock->nNonce), sTx.vin[0].prevout.hash, sTx.vin[0].prevout.n, Mining_height, pindexPrev->GetBlockHeader().GetVerusEntropyHash(Mining_height - 100), sTx.vout[0].nValue).GetHex().c_str(), ArithToUint256(post).GetHex().c_str());
-            if (unlockTime > Mining_height && subsidy >= ASSETCHAINS_TIMELOCKGTE)
-                printf("- timelocked until block %i\n", unlockTime);
+            if (ProcessBlockFound(pblock, *pwallet, reservekey))
+            {
+                LogPrintf("Using %s algorithm:\n", ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
+                LogPrintf("Staked block found  \n  hash: %s  \ntarget: %s\n", pblock->GetHash().GetHex(), hashTarget.GetHex());
+                printf("Found block %d \n", Mining_height );
+                printf("staking reward %.8f %s!\n", (double)subsidy / (double)COIN, ASSETCHAINS_SYMBOL);
+                arith_uint256 post;
+                post.SetCompact(pblock->GetVerusPOSTarget());
+                pindexPrev = get_chainactive(Mining_height - 100);
+                CTransaction &sTx = pblock->vtx[pblock->vtx.size()-1];
+                printf("POS hash: %s  \ntarget:   %s\n", 
+                    CTransaction::_GetVerusPOSHash(&(pblock->nNonce), sTx.vin[0].prevout.hash, sTx.vin[0].prevout.n, Mining_height, pindexPrev->GetBlockHeader().GetVerusEntropyHash(Mining_height - 100), sTx.vout[0].nValue).GetHex().c_str(), ArithToUint256(post).GetHex().c_str());
+                if (unlockTime > Mining_height && subsidy >= ASSETCHAINS_TIMELOCKGTE)
+                    printf("- timelocked until block %i\n", unlockTime);
+                else
+                    printf("\n");
+            }
             else
-                printf("\n");
+            {
+                LogPrintf("Found block rejected at staking height: %d\n", Mining_height);
+                printf("Found block rejected at staking height: %d\n", Mining_height);
+            }
 
             // Check for stop or if block needs to be rebuilt
             boost::this_thread::interruption_point();
@@ -1154,6 +2258,10 @@ void static VerusStaker(CWallet *pwallet)
     }
 }
 
+typedef bool (*minefunction)(CBlockHeader &bh, CVerusHashV2bWriter &vhw, uint256 &finalHash, uint256 &target, uint64_t start, uint64_t *count);
+bool mine_verus_v2(CBlockHeader &bh, CVerusHashV2bWriter &vhw, uint256 &finalHash, uint256 &target, uint64_t start, uint64_t *count);
+bool mine_verus_v2_port(CBlockHeader &bh, CVerusHashV2bWriter &vhw, uint256 &finalHash, uint256 &target, uint64_t start, uint64_t *count);
+
 void static BitcoinMiner_noeq(CWallet *pwallet)
 #else
 void static BitcoinMiner_noeq()
@@ -1170,8 +2278,7 @@ void static BitcoinMiner_noeq()
     const CChainParams& chainparams = Params();
     // Each thread has its own counter
     unsigned int nExtraNonce = 0;
-    std::vector<unsigned char> solnPlaceholder = std::vector<unsigned char>();
-    solnPlaceholder.resize(Eh200_9.SolutionWidth);
+
     uint8_t *script; uint64_t total,checktoshis; int32_t i,j;
 
     while ( (ASSETCHAIN_INIT == 0 || KOMODO_INITDONE == 0) ) //chainActive.Tip()->GetHeight() != 235300 &&
@@ -1192,28 +2299,37 @@ void static BitcoinMiner_noeq()
         pindexCur = chainActive.LastTip();
     } while (pindexPrev != pindexCur);
 
+    // make sure that we have checked for PBaaS availability
+    ConnectedChains.CheckVerusPBaaSAvailable();
+
     // this will not stop printing more than once in all cases, but it will allow us to print in all cases
     // and print duplicates rarely without having to synchronize
     static CBlockIndex *lastChainTipPrinted;
+    static int32_t lastMiningHeight = 0;
 
     miningTimer.start();
 
     try {
         printf("Mining %s with %s\n", ASSETCHAINS_SYMBOL, ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
+
+        // v2 hash writer
+        CVerusHashV2bWriter ss2 = CVerusHashV2bWriter(SER_GETHASH, PROTOCOL_VERSION);
+
         while (true)
         {
             miningTimer.stop();
             waitForPeers(chainparams);
 
             pindexPrev = chainActive.LastTip();
-            sleep(1);
 
-            // prevent forking on startup before the diff algorithm kicks in
-            if (pindexPrev->GetHeight() < 50 || pindexPrev != chainActive.LastTip())
+            // prevent forking on startup before the diff algorithm kicks in,
+            // but only for a startup Verus test chain. PBaaS chains have the difficulty inherited from
+            // their parent
+            if (chainparams.MiningRequiresPeers() && ((IsVerusActive() && pindexPrev->GetHeight() < 50) || pindexPrev != chainActive.LastTip()))
             {
                 do {
                     pindexPrev = chainActive.LastTip();
-                    MilliSleep(5000 + rand() % 5000);
+                    MilliSleep(2000 + rand() % 2000);
                 } while (pindexPrev != chainActive.LastTip());
             }
 
@@ -1222,13 +2338,12 @@ void static BitcoinMiner_noeq()
             if ( Mining_height != pindexPrev->GetHeight()+1 )
             {
                 Mining_height = pindexPrev->GetHeight()+1;
+                if (lastMiningHeight != Mining_height)
+                {
+                    lastMiningHeight = Mining_height;
+                    printf("Mining %s at height %d\n", ASSETCHAINS_SYMBOL, Mining_height);
+                }
                 Mining_start = (uint32_t)time(NULL);
-            }
-
-            if (lastChainTipPrinted != pindexPrev)
-            {
-                printf("Mining height %d\n", Mining_height);
-                lastChainTipPrinted = pindexPrev;
             }
 
             miningTimer.start();
@@ -1241,8 +2356,22 @@ void static BitcoinMiner_noeq()
             if ( ptr == 0 )
             {
                 static uint32_t counter;
-                if ( counter++ < 100 )
-                    fprintf(stderr,"created illegal block, retry\n");
+                if ( counter++ % 40 == 0 )
+                {
+                    if (!IsVerusActive() &&
+                        ConnectedChains.IsVerusPBaaSAvailable() &&
+                        ConnectedChains.notaryChainHeight < ConnectedChains.ThisChain().startBlock)
+                    {
+                        fprintf(stderr,"Waiting for block %d on %s chain to start. Current block is %d\n", ConnectedChains.ThisChain().startBlock,
+                                                                                                           ConnectedChains.notaryChain.chainDefinition.name.c_str(),
+                                                                                                           ConnectedChains.notaryChainHeight);
+                    }
+                    else
+                    {
+                        fprintf(stderr,"Unable to create valid block... will continue to try\n");
+                    }
+                }
+                MilliSleep(2000);
                 continue;
             }
 
@@ -1259,6 +2388,14 @@ void static BitcoinMiner_noeq()
                 return;
             }
             CBlock *pblock = &pblocktemplate->block;
+
+            uint32_t savebits;
+            bool mergeMining = false;
+            savebits = pblock->nBits;
+
+            bool verusHashV2 = pblock->nVersion == CBlockHeader::VERUS_V2;
+            bool verusSolutionV3 = CConstVerusSolutionVector::Version(pblock->nSolution) == CActivationHeight::SOLUTION_VERUSV3;
+
             if ( ASSETCHAINS_SYMBOL[0] != 0 )
             {
                 if ( ASSETCHAINS_REWARD[0] == 0 && !ASSETCHAINS_LASTERA )
@@ -1273,18 +2410,53 @@ void static BitcoinMiner_noeq()
                     } else fprintf(stderr,"%s vouts.%d mining.%d vs %d\n",ASSETCHAINS_SYMBOL,(int32_t)pblock->vtx[0].vout.size(),Mining_height,ASSETCHAINS_MINHEIGHT);
                 }
             }
-            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+
+            // this builds the Merkle tree and sets our easiest target
+            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, false, &savebits);
+
+            // update PBaaS header
+            if (verusSolutionV3)
+            {
+                if (!IsVerusActive() && ConnectedChains.IsVerusPBaaSAvailable())
+                {
+
+                    UniValue params(UniValue::VARR);
+                    UniValue error(UniValue::VARR);
+                    params.push_back(EncodeHexBlk(*pblock));
+                    params.push_back(ASSETCHAINS_SYMBOL);
+                    params.push_back(ASSETCHAINS_RPCHOST);
+                    params.push_back(ASSETCHAINS_RPCPORT);
+                    params.push_back(ASSETCHAINS_RPCCREDENTIALS);
+                    try
+                    {
+                        ConnectedChains.lastSubmissionFailed = false;
+                        params = RPCCallRoot("addmergedblock", params);
+                        params = find_value(params, "result");
+                        error = find_value(params, "error");
+                    } catch (std::exception e)
+                    {
+                        printf("Failed to connect to %s chain\n", ConnectedChains.notaryChain.chainDefinition.name.c_str());
+                        params = UniValue(e.what());
+                    }
+                    if (mergeMining = (params.isNull() && error.isNull()))
+                    {
+                        printf("Merge mining %s with %s as the hashing chain\n", ASSETCHAINS_SYMBOL, ConnectedChains.notaryChain.chainDefinition.name.c_str());
+                        LogPrintf("Merge mining with %s as the hashing chain\n", ConnectedChains.notaryChain.chainDefinition.name.c_str());
+                    }
+                }
+            }
+
             LogPrintf("Running %s miner with %u transactions in block (%u bytes)\n",ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO],
                        pblock->vtx.size(),::GetSerializeSize(*pblock,SER_NETWORK,PROTOCOL_VERSION));
             //
             // Search
             //
-            uint32_t savebits; int64_t nStart = GetTime();
+            int64_t nStart = GetTime();
 
-            pblock->nSolution = solnPlaceholder;
-            savebits = pblock->nBits;
-            arith_uint256 hashTarget = arith_uint256().SetCompact(pblock->nBits);
-            arith_uint256 mask(ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO]);
+            arith_uint256 hashTarget = arith_uint256().SetCompact(savebits);
+            uint256 uintTarget = ArithToUint256(hashTarget);
+            arith_uint256 ourTarget;
+            ourTarget.SetCompact(pblock->nBits);
 
             Mining_start = 0;
 
@@ -1295,7 +2467,7 @@ void static BitcoinMiner_noeq()
                     lastChainTipPrinted = chainActive.LastTip();
                     printf("Block %d added to chain\n", lastChainTipPrinted->GetHeight());
                 }
-                MilliSleep(250);
+                MilliSleep(100);
                 continue;
             }
 
@@ -1308,78 +2480,221 @@ void static BitcoinMiner_noeq()
                 fprintf(stderr," PoW for staked coin PoS %d%% vs target %d%%\n",percPoS,(int32_t)ASSETCHAINS_STAKED);
             }
 
+            uint64_t count;
+            uint64_t hashesToGo = 0;
+            uint64_t totalDone = 0;
+
+            if (!verusHashV2)
+            {
+                // must not be in sync
+                printf("Mining on incorrect block version.\n");
+                sleep(2);
+                continue;
+            }
+
+            int64_t subsidy = (int64_t)(pblock->vtx[0].vout[0].nValue);
+            count = ((ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] >> 3) + 1) / ASSETCHAINS_HASHESPERROUND[ASSETCHAINS_ALGO];
+            CVerusHashV2 *vh2 = &ss2.GetState();
+            u128 *hashKey;
+            verusclhasher &vclh = vh2->vclh;
+            minefunction mine_verus;
+            mine_verus = IsCPUVerusOptimized() ? &mine_verus_v2 : &mine_verus_v2_port;
+
             while (true)
             {
-                arith_uint256 arNonce = UintToArith256(pblock->nNonce);
-
-                CVerusHashWriter ss = CVerusHashWriter(SER_GETHASH, PROTOCOL_VERSION);
-                ss << *((CBlockHeader *)pblock);
-                int64_t *extraPtr = ss.xI64p();
-                CVerusHash &vh = ss.GetState();
                 uint256 hashResult = uint256();
-                vh.ClearExtra();
-                int64_t i, count = ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] + 1;
-                int64_t hashesToGo = ASSETCHAINS_HASHESPERROUND[ASSETCHAINS_ALGO];
 
-                // for speed check NONCEMASK at a time
-                for (i = 0; i < count; i++)
+                unsigned char *curBuf;
+
+                if (mergeMining)
                 {
-                    *extraPtr = i;
-                    vh.ExtraHash((unsigned char *)&hashResult);
-
-                    if ( UintToArith256(hashResult) <= hashTarget )
+                    // loop for a few minutes before refreshing the block
+                    while (true)
                     {
-                        if (pblock->nSolution.size() != 1344)
-                        {
-                            LogPrintf("ERROR: Block solution is not 1344 bytes as it should be");
-                            sleep(5);
-                            break;
-                        }
-
-                        SetThreadPriority(THREAD_PRIORITY_NORMAL);
-
-                        *((int64_t *)&(pblock->nSolution.data()[pblock->nSolution.size() - 15])) = i;
-
-                        int32_t unlockTime = komodo_block_unlocktime(Mining_height);
-                        int64_t subsidy = (int64_t)(pblock->vtx[0].vout[0].nValue);
-
-                        LogPrintf("Using %s algorithm:\n", ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
-                        LogPrintf("proof-of-work found  \n  hash: %s  \ntarget: %s\n", pblock->GetHash().GetHex(), hashTarget.GetHex());
-                        printf("Found block %d \n", Mining_height );
-                        printf("mining reward %.8f %s!\n", (double)subsidy / (double)COIN, ASSETCHAINS_SYMBOL);
-                        printf("  hash: %s  \ntarget: %s\n", pblock->GetHash().GetHex().c_str(), hashTarget.GetHex().c_str());
-                        if (unlockTime > Mining_height && subsidy >= ASSETCHAINS_TIMELOCKGTE)
-                            printf("- timelocked until block %i\n", unlockTime);
-                        else
-                            printf("\n");
-#ifdef ENABLE_WALLET
-                        ProcessBlockFound(pblock, *pwallet, reservekey);
-#else
-                        ProcessBlockFound(pblock));
-#endif
-                        SetThreadPriority(THREAD_PRIORITY_LOWEST);
-                        break;
-                    }
-                    // check periodically if we're stale
-                    if (!--hashesToGo)
-                    {
+                        uint256 ourMerkle = pblock->hashMerkleRoot;
                         if ( pindexPrev != chainActive.LastTip() )
                         {
                             if (lastChainTipPrinted != chainActive.LastTip())
                             {
                                 lastChainTipPrinted = chainActive.LastTip();
-                                printf("Block %d added to chain\n", lastChainTipPrinted->GetHeight());
+                                printf("Block %d added to chain\n\n", lastChainTipPrinted->GetHeight());
+                                arith_uint256 target;
+                                target.SetCompact(lastChainTipPrinted->nBits);
+                                if (ourMerkle == lastChainTipPrinted->hashMerkleRoot)
+                                {
+                                    LogPrintf("proof-of-work found  \n  hash: %s  \ntarget: %s\n", lastChainTipPrinted->GetBlockHash().GetHex().c_str(), ArithToUint256(ourTarget).GetHex().c_str());
+                                    printf("Found block %d \n", lastChainTipPrinted->GetHeight());
+                                    printf("mining reward %.8f %s!\n", (double)subsidy / (double)COIN, ASSETCHAINS_SYMBOL);
+                                    printf("  hash: %s\ntarget: %s\n", lastChainTipPrinted->GetBlockHash().GetHex().c_str(), ArithToUint256(ourTarget).GetHex().c_str());
+                                }
                             }
                             break;
                         }
-                        hashesToGo = ASSETCHAINS_HASHESPERROUND[ASSETCHAINS_ALGO];
+
+                        // if PBaaS is no longer available, we can't count on merge mining
+                        if (!ConnectedChains.IsVerusPBaaSAvailable())
+                        {
+                            break;
+                        }
+
+                        if (vNodes.empty() && chainparams.MiningRequiresPeers())
+                        {
+                            if ( Mining_height > ASSETCHAINS_MINHEIGHT )
+                            {
+                                fprintf(stderr,"no nodes, attempting reconnect\n");
+                                break;
+                            }
+                        }
+
+                        // update every few minutes, regardless
+                        int64_t elapsed = GetTime() - nStart;
+
+                        if ((mempool.GetTransactionsUpdated() != nTransactionsUpdatedLast && elapsed > 60) || elapsed > 60 || ConnectedChains.lastSubmissionFailed)
+                        {
+                            break;
+                        }
+
+                        boost::this_thread::interruption_point();
+                        MilliSleep(500);
+                    }
+                    break;
+                }
+                else
+                {
+                    // check NONCEMASK at a time
+                    for (uint64_t i = 0; i < count; i++)
+                    {
+                        // this is the actual mining loop, which enables us to drop out and queue a header anytime we earn a block that is good enough for a
+                        // merge mined block, but not our own
+                        bool blockFound;
+                        arith_uint256 arithHash;
+                        totalDone = 0;
+                        do
+                        {
+                            // pickup/remove any new/deleted headers
+                            if (ConnectedChains.dirty || (pblock->NumPBaaSHeaders() < ConnectedChains.mergeMinedChains.size() + 1))
+                            {
+                                IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, false, &savebits);
+
+                                hashTarget.SetCompact(savebits);
+                                uintTarget = ArithToUint256(hashTarget);
+                            }
+
+                            // hashesToGo gets updated with actual number run for metrics
+                            hashesToGo = ASSETCHAINS_HASHESPERROUND[ASSETCHAINS_ALGO];
+                            uint64_t start = i * hashesToGo + totalDone;
+                            hashesToGo -= totalDone;
+
+                            if (verusSolutionV3)
+                            {
+                                // mine on canonical header for merge mining
+                                CPBaaSPreHeader savedHeader(*pblock);
+
+                                pblock->ClearNonCanonicalData();
+                                blockFound = (*mine_verus)(*pblock, ss2, hashResult, uintTarget, start, &hashesToGo);
+                                savedHeader.SetBlockData(*pblock);
+                            }
+                            else
+                            {
+                                blockFound = (*mine_verus)(*pblock, ss2, hashResult, uintTarget, start, &hashesToGo);
+                            }
+
+                            arithHash = UintToArith256(hashResult);
+                            totalDone += hashesToGo + 1;
+                            if (blockFound && IsVerusActive())
+                            {
+                                ConnectedChains.QueueNewBlockHeader(*pblock);
+                                if (arithHash > ourTarget)
+                                {
+                                    // all blocks qualified with this hash will be submitted
+                                    // until we redo the block, we might as well not try again with anything over this hash
+                                    hashTarget = arithHash;
+                                    uintTarget = ArithToUint256(hashTarget);
+                                }
+                            }
+                        } while (blockFound && arithHash > ourTarget);
+
+                        if (!blockFound || arithHash > ourTarget)
+                        {
+                            // Check for stop or if block needs to be rebuilt
+                            boost::this_thread::interruption_point();
+                            if ( pindexPrev != chainActive.LastTip() )
+                            {
+                                if (lastChainTipPrinted != chainActive.LastTip())
+                                {
+                                    lastChainTipPrinted = chainActive.LastTip();
+                                    printf("Block %d added to chain\n", lastChainTipPrinted->GetHeight());
+                                }
+                                break;
+                            }
+                            else if ((i + 1) < count)
+                            {
+                                // if we'll not drop through, update hashcount
+                                {
+                                    LOCK(cs_metrics);
+                                    nHashCount += totalDone;
+                                    totalDone = 0;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Check for stop or if block needs to be rebuilt
+                            boost::this_thread::interruption_point();
+
+                            if (pblock->nSolution.size() != 1344)
+                            {
+                                LogPrintf("ERROR: Block solution is not 1344 bytes as it should be");
+                                break;
+                            }
+
+                            SetThreadPriority(THREAD_PRIORITY_NORMAL);
+
+                            int32_t unlockTime = komodo_block_unlocktime(Mining_height);
+
+#ifdef VERUSHASHDEBUG
+                            std::string validateStr = hashResult.GetHex();
+                            std::string hashStr = pblock->GetHash().GetHex();
+                            uint256 *bhalf1 = (uint256 *)vh2->CurBuffer();
+                            uint256 *bhalf2 = bhalf1 + 1;
+#else
+                            std::string hashStr = hashResult.GetHex();
+#endif
+
+                            LogPrintf("Using %s algorithm:\n", ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
+                            LogPrintf("proof-of-work found  \n  hash: %s  \ntarget: %s\n", hashStr, ArithToUint256(ourTarget).GetHex());
+                            printf("Found block %d \n", Mining_height );
+                            printf("mining reward %.8f %s!\n", (double)subsidy / (double)COIN, ASSETCHAINS_SYMBOL);
+#ifdef VERUSHASHDEBUG
+                            printf("  hash: %s\n   val: %s  \ntarget: %s\n\n", hashStr.c_str(), validateStr.c_str(), ArithToUint256(ourTarget).GetHex().c_str());
+                            printf("intermediate %lx\n", intermediate);
+                            printf("Curbuf: %s%s\n", bhalf1->GetHex().c_str(), bhalf2->GetHex().c_str());
+                            bhalf1 = (uint256 *)verusclhasher_key.get();
+                            bhalf2 = bhalf1 + ((vh2->vclh.keyMask + 1) >> 5);
+                            printf("   Key: %s%s\n", bhalf1->GetHex().c_str(), bhalf2->GetHex().c_str());
+#else
+                            printf("  hash: %s\ntarget: %s", hashStr.c_str(), ArithToUint256(ourTarget).GetHex().c_str());
+#endif
+                            if (unlockTime > Mining_height && subsidy >= ASSETCHAINS_TIMELOCKGTE)
+                                printf(" - timelocked until block %i\n", unlockTime);
+                            else
+                                printf("\n");
+#ifdef ENABLE_WALLET
+                            ProcessBlockFound(pblock, *pwallet, reservekey);
+#else
+                            ProcessBlockFound(pblock);
+#endif
+                            SetThreadPriority(THREAD_PRIORITY_LOWEST);
+                            break;
+                        }
+                    }
+
+                    {
+                        LOCK(cs_metrics);
+                        nHashCount += totalDone;
                     }
                 }
-
-                {
-                    LOCK(cs_metrics);
-                    nHashCount += i;
-                }
+                
 
                 // Check for stop or if block needs to be rebuilt
                 boost::this_thread::interruption_point();
@@ -1404,16 +2719,21 @@ void static BitcoinMiner_noeq()
                     if (lastChainTipPrinted != chainActive.LastTip())
                     {
                         lastChainTipPrinted = chainActive.LastTip();
-                        printf("Block %d added to chain\n", lastChainTipPrinted->GetHeight());
+                        printf("Block %d added to chain\n\n", lastChainTipPrinted->GetHeight());
                     }
                     break;
                 }
 
+                // totalDone now has the number of hashes actually done since starting on one nonce mask worth
+                uint64_t hashesPerNonceMask = ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] >> 3;
+                if (!(totalDone < hashesPerNonceMask))
+                {
 #ifdef _WIN32
-                printf("%llu mega hashes complete - working\n", (ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] + 1) / 1048576);
+                    printf("%llu mega hashes complete - working\n", (hashesPerNonceMask + 1) / 1048576);
 #else
-                printf("%lu mega hashes complete - working\n", (ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] + 1) / 1048576);
+                    printf("%lu mega hashes complete - working\n", (hashesPerNonceMask + 1) / 1048576);
 #endif
+                }
                 break;
 
             }
@@ -1434,17 +2754,14 @@ void static BitcoinMiner_noeq()
     miningTimer.stop();
 }
 
-#ifdef ENABLE_WALLET
 void static BitcoinMiner(CWallet *pwallet)
-#else
-void static BitcoinMiner()
-#endif
 {
     LogPrintf("KomodoMiner started\n");
     SetThreadPriority(THREAD_PRIORITY_LOWEST);
     RenameThread("komodo-miner");
+
     const CChainParams& chainparams = Params();
-    
+
 #ifdef ENABLE_WALLET
     // Each thread has its own key
     CReserveKey reservekey(pwallet);
@@ -1453,8 +2770,8 @@ void static BitcoinMiner()
     // Each thread has its own counter
     unsigned int nExtraNonce = 0;
     
-    unsigned int n = chainparams.EquihashN();
-    unsigned int k = chainparams.EquihashK();
+    unsigned int n = chainparams.GetConsensus().EquihashN();
+    unsigned int k = chainparams.GetConsensus().EquihashK();
     uint8_t *script; uint64_t total,checktoshis; int32_t i,j,gpucount=KOMODO_MAXGPUCOUNT,notaryid = -1;
     while ( (ASSETCHAIN_INIT == 0 || KOMODO_INITDONE == 0) )
     {
@@ -1502,7 +2819,7 @@ void static BitcoinMiner()
                         //LOCK(cs_vNodes);
                         fvNodesEmpty = vNodes.empty();
                     }
-                    if (!fvNodesEmpty )//&& !IsInitialBlockDownload())
+                    if (!fvNodesEmpty && !IsInitialBlockDownload(chainparams))
                         break;
                     MilliSleep(15000);
                     //fprintf(stderr,"fvNodesEmpty %d IsInitialBlockDownload(%s) %d\n",(int32_t)fvNodesEmpty,ASSETCHAINS_SYMBOL,(int32_t)IsInitialBlockDownload());
@@ -1737,7 +3054,7 @@ void static BitcoinMiner()
                         fprintf(stderr," mined %s block %d!\n",ASSETCHAINS_SYMBOL,Mining_height);
                     }
                     CValidationState state;
-                    if ( !TestBlockValidity(state,B, chainActive.LastTip(), true, false))
+                    if ( !TestBlockValidity(state, Params(), B, chainActive.LastTip(), true, false))
                     {
                         h = UintToArith256(B.GetHash());
                         for (z=31; z>=0; z--)
@@ -1897,13 +3214,19 @@ void static BitcoinMiner()
         miningTimer.stop();
         c.disconnect();
     }
-    
+
+
 #ifdef ENABLE_WALLET
     void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
 #else
     void GenerateBitcoins(bool fGenerate, int nThreads)
 #endif
     {
+        if (!AreParamsInitialized())
+        {
+            return;
+        }
+
         // if we are supposed to catch stake cheaters, there must be a valid sapling parameter, we need it at
         // initialization, and this is the first time we can get it. store the Sapling address here
         extern boost::optional<libzcash::SaplingPaymentAddress> cheatCatcher;
@@ -1919,28 +3242,37 @@ void static BitcoinMiner()
             {
             }
         }
-        if (VERUS_CHEATCATCHER.size() > 0)
+
+        VERUS_MINTBLOCKS = (VERUS_MINTBLOCKS && ASSETCHAINS_LWMAPOS != 0);
+
+        if (fGenerate == true || VERUS_MINTBLOCKS)
         {
-            if (cheatCatcher == boost::none)
+            mapArgs["-gen"] = "1";
+
+            if (VERUS_CHEATCATCHER.size() > 0)
             {
-                LogPrintf("ERROR: -cheatcatcher parameter is invalid Sapling payment address\n");
-                fprintf(stderr, "-cheatcatcher parameter is invalid Sapling payment address\n");
-            }
-            else
-            {
-                LogPrintf("Cheat Catcher active on %s\n", VERUS_CHEATCATCHER.c_str());
-                fprintf(stderr, "Cheat Catcher active on %s\n", VERUS_CHEATCATCHER.c_str());
+                if (cheatCatcher == boost::none)
+                {
+                    LogPrintf("ERROR: -cheatcatcher parameter is invalid Sapling payment address\n");
+                    fprintf(stderr, "-cheatcatcher parameter is invalid Sapling payment address\n");
+                }
+                else
+                {
+                    LogPrintf("StakeGuard searching for double stakes on %s\n", VERUS_CHEATCATCHER.c_str());
+                    fprintf(stderr, "StakeGuard searching for double stakes on %s\n", VERUS_CHEATCATCHER.c_str());
+                }
             }
         }
 
         static boost::thread_group* minerThreads = NULL;
-        
+
         if (nThreads < 0)
             nThreads = GetNumCores();
         
         if (minerThreads != NULL)
         {
             minerThreads->interrupt_all();
+            minerThreads->join_all();
             delete minerThreads;
             minerThreads = NULL;
         }
@@ -1949,13 +3281,16 @@ void static BitcoinMiner()
         if ( nThreads == 0 && ASSETCHAINS_STAKED )
             nThreads = 1;
 
-        if ((nThreads == 0 || !fGenerate) && (VERUS_MINTBLOCKS == 0 || pwallet == NULL))
+        if (!fGenerate)
             return;
 
         minerThreads = new boost::thread_group();
 
+        // add the PBaaS thread when mining or staking
+        minerThreads->create_thread(boost::bind(&CConnectedChains::SubmissionThreadStub));
+
 #ifdef ENABLE_WALLET
-        if (ASSETCHAINS_LWMAPOS != 0 && VERUS_MINTBLOCKS)
+        if (VERUS_MINTBLOCKS && pwallet != NULL)
         {
             minerThreads->create_thread(boost::bind(&VerusStaker, pwallet));
         }

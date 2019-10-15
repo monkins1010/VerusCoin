@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 /**
  * Server/client environment: argument handling, config file parsing,
@@ -29,6 +29,8 @@
 #include <boost/signals2/signal.hpp>
 #include <boost/thread/exceptions.hpp>
 
+#include "komodo_defs.h"
+
 static const bool DEFAULT_LOGTIMEMICROS = false;
 static const bool DEFAULT_LOGIPS        = false;
 static const bool DEFAULT_LOGTIMESTAMPS = true;
@@ -52,6 +54,7 @@ extern bool fLogTimestamps;
 extern bool fLogIPs;
 extern std::atomic<bool> fReopenDebugLog;
 extern CTranslationInterface translationInterface;
+extern bool PBAAS_TESTMODE;
 
 [[noreturn]] extern void new_handler_terminate();
 
@@ -67,6 +70,8 @@ inline std::string _(const char* psz)
 
 void SetupEnvironment();
 bool SetupNetworking();
+
+bool _IsVerusActive();
 
 /** Return true if log accepts specified category */
 bool LogAcceptCategory(const char* category);
@@ -123,9 +128,12 @@ void AllocateFileRange(FILE *file, unsigned int offset, unsigned int length);
 bool RenameOver(boost::filesystem::path src, boost::filesystem::path dest);
 bool TryCreateDirectory(const boost::filesystem::path& p);
 boost::filesystem::path GetDefaultDataDir();
+boost::filesystem::path GetDefaultDataDir(std::string chainName);
 const boost::filesystem::path &GetDataDir(bool fNetSpecific = true);
+const boost::filesystem::path GetDataDir(std::string chainName);
 void ClearDatadirCache();
 boost::filesystem::path GetConfigFile();
+boost::filesystem::path GetConfigFile(std::string chainName);
 #ifndef _WIN32
 boost::filesystem::path GetPidFile();
 void CreatePidFile(const boost::filesystem::path &path, pid_t pid);
@@ -135,6 +143,9 @@ public:
     missing_zcash_conf() : std::runtime_error("Missing komodo.conf") { }
 };
 void ReadConfigFile(std::map<std::string, std::string>& mapSettingsRet, std::map<std::string, std::vector<std::string> >& mapMultiSettingsRet);
+bool ReadConfigFile(std::string chainName,
+                    std::map<std::string, std::string>& mapSettingsRet,
+                    std::map<std::string, std::vector<std::string> >& mapMultiSettingsRet);
 #ifdef _WIN32
 boost::filesystem::path GetSpecialFolderPath(int nFolder, bool fCreate = true);
 #endif
@@ -168,7 +179,7 @@ inline bool IsSwitchChar(char c)
  *      else if the string has fewer than _MAX_ERAS entries, then the last 
  *      entry fills remaining entries
  */
-void Split(const std::string& strVal, uint64_t *outVals, uint64_t nDefault);
+void Split(const std::string& strVal, uint64_t *outVals, uint64_t nDefault, int maxElements = ASSETCHAINS_MAX_ERAS);
 
 /**
  * Return string argument or default value
