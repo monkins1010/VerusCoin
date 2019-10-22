@@ -12,6 +12,7 @@ static asn_TYPE_member_t asn_MBR_subfulfillments_2[] = {
 		0,
 		&asn_DEF_Fulfillment,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		""
@@ -26,26 +27,34 @@ static asn_SET_OF_specifics_t asn_SPC_subfulfillments_specs_2 = {
 	offsetof(struct subfulfillments, _asn_ctx),
 	2,	/* XER encoding is XMLValueList */
 };
-static /* Use -fall-defs-global to expose */
-asn_TYPE_descriptor_t asn_DEF_subfulfillments_2 = {
-	"subfulfillments",
-	"subfulfillments",
+
+static asn_TYPE_operation_t asn_CHOICE_subfulfillments_2 = {
 	SET_OF_free,
 	SET_OF_print,
-	SET_OF_constraint,
+	SET_OF_compare,
 	SET_OF_decode_ber,
 	SET_OF_encode_der,
 	SET_OF_decode_xer,
 	SET_OF_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+static /* Use -fall-defs-global to expose */
+asn_TYPE_descriptor_t asn_DEF_subfulfillments_2 = {
+	"subfulfillments",
+	"subfulfillments",
+	&asn_CHOICE_subfulfillments_2,
 	asn_DEF_subfulfillments_tags_2,
 	sizeof(asn_DEF_subfulfillments_tags_2)
 		/sizeof(asn_DEF_subfulfillments_tags_2[0]) - 1, /* 1 */
 	asn_DEF_subfulfillments_tags_2,	/* Same as above */
 	sizeof(asn_DEF_subfulfillments_tags_2)
 		/sizeof(asn_DEF_subfulfillments_tags_2[0]), /* 2 */
-	0,	/* No PER visible constraints */
+	{ 0, 0, SET_OF_constraint },
 	asn_MBR_subfulfillments_2,
 	1,	/* Single element */
 	&asn_SPC_subfulfillments_specs_2	/* Additional specs */
@@ -57,6 +66,7 @@ static asn_TYPE_member_t asn_MBR_subconditions_4[] = {
 		0,
 		&asn_DEF_Condition,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0}, 
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		""
@@ -71,26 +81,34 @@ static asn_SET_OF_specifics_t asn_SPC_subconditions_specs_4 = {
 	offsetof(struct subconditions, _asn_ctx),
 	2,	/* XER encoding is XMLValueList */
 };
-static /* Use -fall-defs-global to expose */
-asn_TYPE_descriptor_t asn_DEF_subconditions_4 = {
-	"subconditions",
-	"subconditions",
+
+static asn_TYPE_operation_t asn_CHOICE_subconditions_4 = {
 	SET_OF_free,
 	SET_OF_print,
-	SET_OF_constraint,
+	SET_OF_compare,
 	SET_OF_decode_ber,
 	SET_OF_encode_der,
 	SET_OF_decode_xer,
 	SET_OF_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+static /* Use -fall-defs-global to expose */
+asn_TYPE_descriptor_t asn_DEF_subconditions_4 = {
+	"subconditions",
+	"subconditions",
+	&asn_CHOICE_subconditions_4,
 	asn_DEF_subconditions_tags_4,
 	sizeof(asn_DEF_subconditions_tags_4)
 		/sizeof(asn_DEF_subconditions_tags_4[0]) - 1, /* 1 */
 	asn_DEF_subconditions_tags_4,	/* Same as above */
 	sizeof(asn_DEF_subconditions_tags_4)
 		/sizeof(asn_DEF_subconditions_tags_4[0]), /* 2 */
-	0,	/* No PER visible constraints */
+	{ 0, 0, SET_OF_constraint },
 	asn_MBR_subconditions_4,
 	1,	/* Single element */
 	&asn_SPC_subconditions_specs_4	/* Additional specs */
@@ -102,6 +120,7 @@ static asn_TYPE_member_t asn_MBR_ThresholdFulfillment_1[] = {
 		0,
 		&asn_DEF_subfulfillments_2,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		"subfulfillments"
@@ -111,6 +130,7 @@ static asn_TYPE_member_t asn_MBR_ThresholdFulfillment_1[] = {
 		0,
 		&asn_DEF_subconditions_4,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		"subconditions"
@@ -129,28 +149,38 @@ static asn_SEQUENCE_specifics_t asn_SPC_ThresholdFulfillment_specs_1 = {
 	asn_MAP_ThresholdFulfillment_tag2el_1,
 	2,	/* Count of tags in the map */
 	0, 0, 0,	/* Optional elements (not needed) */
-	-1,	/* Start extensions */
-	-1	/* Stop extensions */
+	-1	/* Start extensions */
+//-1	/* Stop extensions */
 };
-asn_TYPE_descriptor_t asn_DEF_ThresholdFulfillment = {
-	"ThresholdFulfillment",
-	"ThresholdFulfillment",
+
+static asn_TYPE_operation_t asn_CHOICE_ThresholdFulfillment = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	SEQUENCE_constraint,
+	SEQUENCE_compare,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,
 	SEQUENCE_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+
+
+asn_TYPE_descriptor_t asn_DEF_ThresholdFulfillment = {
+	"ThresholdFulfillment",
+	"ThresholdFulfillment",
+	&asn_CHOICE_ThresholdFulfillment,
 	asn_DEF_ThresholdFulfillment_tags_1,
 	sizeof(asn_DEF_ThresholdFulfillment_tags_1)
 		/sizeof(asn_DEF_ThresholdFulfillment_tags_1[0]), /* 1 */
 	asn_DEF_ThresholdFulfillment_tags_1,	/* Same as above */
 	sizeof(asn_DEF_ThresholdFulfillment_tags_1)
 		/sizeof(asn_DEF_ThresholdFulfillment_tags_1[0]), /* 1 */
-	0,	/* No PER visible constraints */
+	{ 0, 0, SEQUENCE_constraint },
 	asn_MBR_ThresholdFulfillment_1,
 	2,	/* Elements count */
 	&asn_SPC_ThresholdFulfillment_specs_1	/* Additional specs */

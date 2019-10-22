@@ -14,6 +14,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"preimageSha256"
 		},
 	{ ATF_POINTER, 0, offsetof(struct Fulfillment, choice.prefixSha256),
@@ -22,6 +23,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		&asn_DEF_PrefixFulfillment,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"prefixSha256"
 		},
@@ -32,6 +34,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"thresholdSha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Fulfillment, choice.rsaSha256),
@@ -40,6 +43,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		&asn_DEF_RsaSha256Fulfillment,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"rsaSha256"
 		},
@@ -50,6 +54,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"ed25519Sha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Fulfillment, choice.secp256k1Sha256),
@@ -59,6 +64,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"secp256k1Sha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Fulfillment, choice.evalSha256),
@@ -67,6 +73,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		&asn_DEF_EvalFulfillment,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"evalSha256"
 		},
@@ -87,26 +94,35 @@ static asn_CHOICE_specifics_t asn_SPC_Fulfillment_specs_1 = {
 	sizeof(((struct Fulfillment *)0)->present),
 	asn_MAP_Fulfillment_tag2el_1,
 	7,	/* Count of tags in the map */
-	0,
+	0, /*to_canonical_order */
+	0,/*from_canonical_order */
 	-1	/* Extensions start */
 };
-asn_TYPE_descriptor_t asn_DEF_Fulfillment = {
-	"Fulfillment",
-	"Fulfillment",
+
+static asn_TYPE_operation_t asn_CHOICE_Fulfillment = {
 	CHOICE_free,
 	CHOICE_print,
-	CHOICE_constraint,
+	CHOICE_compare,
 	CHOICE_decode_ber,
 	CHOICE_encode_der,
 	CHOICE_decode_xer,
 	CHOICE_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	CHOICE_outmost_tag,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+asn_TYPE_descriptor_t asn_DEF_Fulfillment = {
+	"Fulfillment",
+	"Fulfillment",
+	&asn_CHOICE_Fulfillment,
 	0,	/* No effective tags (pointer) */
 	0,	/* No effective tags (count) */
 	0,	/* No tags (pointer) */
 	0,	/* No tags (count) */
-	0,	/* No PER visible constraints */
+	{ 0, 0, CHOICE_constraint },
 	asn_MBR_Fulfillment_1,
 	7,	/* Elements count */
 	&asn_SPC_Fulfillment_specs_1	/* Additional specs */

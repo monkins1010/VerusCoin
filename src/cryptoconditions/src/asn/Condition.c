@@ -14,6 +14,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"preimageSha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Condition, choice.prefixSha256),
@@ -22,6 +23,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		&asn_DEF_CompoundSha256Condition,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"prefixSha256"
 		},
@@ -32,6 +34,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"thresholdSha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Condition, choice.rsaSha256),
@@ -40,6 +43,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		&asn_DEF_SimpleSha256Condition,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"rsaSha256"
 		},
@@ -50,6 +54,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"ed25519Sha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Condition, choice.secp256k1Sha256),
@@ -59,6 +64,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
+		0,
 		"secp256k1Sha256"
 		},
 	{ ATF_NOFLAGS, 0, offsetof(struct Condition, choice.evalSha256),
@@ -67,6 +73,7 @@ static asn_TYPE_member_t asn_MBR_Condition_1[] = {
 		&asn_DEF_SimpleSha256Condition,
 		0,	/* Defer constraints checking to the member type */
 		0,	/* PER is not compiled, use -gen-PER */
+		0,
 		0,
 		"evalSha256"
 		},
@@ -87,11 +94,12 @@ static asn_CHOICE_specifics_t asn_SPC_Condition_specs_1 = {
 	sizeof(((struct Condition *)0)->present),
 	asn_MAP_Condition_tag2el_1,
 	7,	/* Count of tags in the map */
-	0,
+	0,  /*to_canonical_order */
+	0,   /*from_canonical_order */
 	-1	/* Extensions start */
 };
 
-asn_TYPE_operation_t asn_OP_CHOICE = {
+asn_TYPE_operation_t asn_CHOICE_Condition_1 = {
 	CHOICE_free,
 	CHOICE_print,
 	CHOICE_compare,
@@ -121,7 +129,7 @@ asn_TYPE_operation_t asn_OP_CHOICE = {
 asn_TYPE_descriptor_t asn_DEF_Condition = {
 	"Condition",
 	"Condition",
-	&asn_OP_CHOICE,
+	&asn_CHOICE_Condition_1,
 	0,	/* No effective tags (pointer) */
 	0,	/* No effective tags (count) */
 	0,	/* No tags (pointer) */

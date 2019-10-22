@@ -78,7 +78,9 @@ libcryptoconditions_core_la_SOURCES = \
 	src/asn/per_support.c \
 	src/asn/per_decoder.c \
 	src/asn/per_encoder.c \
-	src/asn/per_opentype.c
+	src/asn/per_opentype.c \
+	src/asn/asn_random_fill.c \
+	src/asn/constr_CHOICE_oer.c
 
 test:
 	bash -c '[ -d .env ] || virtualenv .env -p python3'

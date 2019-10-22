@@ -12,7 +12,8 @@ static asn_TYPE_member_t asn_MBR_PreimageFulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_OCTET_STRING,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},
+		0,
 		0,
 		"preimage"
 		},
@@ -29,28 +30,37 @@ static asn_SEQUENCE_specifics_t asn_SPC_PreimageFulfillment_specs_1 = {
 	asn_MAP_PreimageFulfillment_tag2el_1,
 	1,	/* Count of tags in the map */
 	0, 0, 0,	/* Optional elements (not needed) */
-	-1,	/* Start extensions */
-	-1	/* Stop extensions */
+	-1	/* Start extensions */
+//	-1	/* Stop extensions */
 };
-asn_TYPE_descriptor_t asn_DEF_PreimageFulfillment = {
-	"PreimageFulfillment",
-	"PreimageFulfillment",
+
+static asn_TYPE_operation_t asn_CHOICE_PreimageFulfillment = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	SEQUENCE_constraint,
+	SEQUENCE_compare,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,
 	SEQUENCE_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+
+asn_TYPE_descriptor_t asn_DEF_PreimageFulfillment = {
+	"PreimageFulfillment",
+	"PreimageFulfillment",
+	&asn_CHOICE_PreimageFulfillment,
 	asn_DEF_PreimageFulfillment_tags_1,
 	sizeof(asn_DEF_PreimageFulfillment_tags_1)
 		/sizeof(asn_DEF_PreimageFulfillment_tags_1[0]), /* 1 */
 	asn_DEF_PreimageFulfillment_tags_1,	/* Same as above */
 	sizeof(asn_DEF_PreimageFulfillment_tags_1)
 		/sizeof(asn_DEF_PreimageFulfillment_tags_1[0]), /* 1 */
-	0,	/* No PER visible constraints */
+	{ 0, 0, SEQUENCE_constraint },
 	asn_MBR_PreimageFulfillment_1,
 	1,	/* Elements count */
 	&asn_SPC_PreimageFulfillment_specs_1	/* Additional specs */

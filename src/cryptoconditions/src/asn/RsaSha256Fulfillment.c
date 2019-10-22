@@ -12,6 +12,7 @@ static asn_TYPE_member_t asn_MBR_RsaSha256Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_OCTET_STRING,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		"modulus"
@@ -21,6 +22,7 @@ static asn_TYPE_member_t asn_MBR_RsaSha256Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_OCTET_STRING,
 		0,	/* Defer constraints checking to the member type */
+		{0,0,0},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		"signature"
@@ -39,28 +41,36 @@ static asn_SEQUENCE_specifics_t asn_SPC_RsaSha256Fulfillment_specs_1 = {
 	asn_MAP_RsaSha256Fulfillment_tag2el_1,
 	2,	/* Count of tags in the map */
 	0, 0, 0,	/* Optional elements (not needed) */
-	-1,	/* Start extensions */
-	-1	/* Stop extensions */
+	-1	/* Start extensions */
+//-1	/* Stop extensions */
 };
-asn_TYPE_descriptor_t asn_DEF_RsaSha256Fulfillment = {
-	"RsaSha256Fulfillment",
-	"RsaSha256Fulfillment",
+
+static const asn_TYPE_operation_t asn_CHOICE_RsaSha256Fulfillment = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	SEQUENCE_constraint,
+	0,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,
 	SEQUENCE_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+asn_TYPE_descriptor_t asn_DEF_RsaSha256Fulfillment = {
+	"RsaSha256Fulfillment",
+	"RsaSha256Fulfillment",
+	&asn_CHOICE_RsaSha256Fulfillment,
 	asn_DEF_RsaSha256Fulfillment_tags_1,
 	sizeof(asn_DEF_RsaSha256Fulfillment_tags_1)
 		/sizeof(asn_DEF_RsaSha256Fulfillment_tags_1[0]), /* 1 */
 	asn_DEF_RsaSha256Fulfillment_tags_1,	/* Same as above */
 	sizeof(asn_DEF_RsaSha256Fulfillment_tags_1)
 		/sizeof(asn_DEF_RsaSha256Fulfillment_tags_1[0]), /* 1 */
-	0,	/* No PER visible constraints */
+	{ 0, 0, SEQUENCE_constraint },
 	asn_MBR_RsaSha256Fulfillment_1,
 	2,	/* Elements count */
 	&asn_SPC_RsaSha256Fulfillment_specs_1	/* Additional specs */

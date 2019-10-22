@@ -7,11 +7,14 @@
 #include "ConditionTypes.h"
 
 int
-ConditionTypes_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
+ConditionTypes_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	/* Replace with underlying type checker */
-	td->check_constraints = asn_DEF_BIT_STRING.check_constraints;
-	return td->check_constraints(td, sptr, ctfailcb, app_key);
+	//td->encoding_constraints.general_constraints = asn_DEF_BIT_STRING.encoding_constraints.general_constraints;
+	// *******   CHECK  ************ above is remmed out because of change of typedef int(asn_constr_check_f)(
+	//const struct asn_TYPE_descriptor_s *type_descriptor,   it wasnt a const trcut before
+	// I think the below static void sets the eoncoding constraint now however
+	return td->encoding_constraints.general_constraints(td, sptr, ctfailcb, app_key);
 }
 
 /*
@@ -20,89 +23,99 @@ ConditionTypes_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
  */
 static void
 ConditionTypes_1_inherit_TYPE_descriptor(asn_TYPE_descriptor_t *td) {
-	td->free_struct    = asn_DEF_BIT_STRING.free_struct;
-	td->print_struct   = asn_DEF_BIT_STRING.print_struct;
-	td->check_constraints = asn_DEF_BIT_STRING.check_constraints;
-	td->ber_decoder    = asn_DEF_BIT_STRING.ber_decoder;
-	td->der_encoder    = asn_DEF_BIT_STRING.der_encoder;
-	td->xer_decoder    = asn_DEF_BIT_STRING.xer_decoder;
-	td->xer_encoder    = asn_DEF_BIT_STRING.xer_encoder;
-	td->uper_decoder   = asn_DEF_BIT_STRING.uper_decoder;
-	td->uper_encoder   = asn_DEF_BIT_STRING.uper_encoder;
-	if(!td->per_constraints)
-		td->per_constraints = asn_DEF_BIT_STRING.per_constraints;
+	td->op->free_struct    = asn_DEF_BIT_STRING.op->free_struct;
+	td->op->print_struct   = asn_DEF_BIT_STRING.op->print_struct;
+	td->encoding_constraints = asn_DEF_BIT_STRING.encoding_constraints;
+	td->op->ber_decoder    = asn_DEF_BIT_STRING.op->ber_decoder;
+	td->op->der_encoder    = asn_DEF_BIT_STRING.op->der_encoder;
+	td->op->xer_decoder    = asn_DEF_BIT_STRING.op->xer_decoder;
+	td->op->xer_encoder    = asn_DEF_BIT_STRING.op->xer_encoder;
+	td->op->uper_decoder   = asn_DEF_BIT_STRING.op->uper_decoder;
+	td->op->uper_encoder   = asn_DEF_BIT_STRING.op->uper_encoder;
+	if(!td->encoding_constraints.per_constraints)
+		td->encoding_constraints.per_constraints = asn_DEF_BIT_STRING.encoding_constraints.per_constraints;
 	td->elements       = asn_DEF_BIT_STRING.elements;
 	td->elements_count = asn_DEF_BIT_STRING.elements_count;
 	td->specifics      = asn_DEF_BIT_STRING.specifics;
 }
 
 void
-ConditionTypes_free(asn_TYPE_descriptor_t *td,
-		void *struct_ptr, int contents_only) {
+ConditionTypes_free(const asn_TYPE_descriptor_t *td,
+		void *struct_ptr, enum asn_struct_free_method contents_only) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	td->free_struct(td, struct_ptr, contents_only);
+	td->op->free_struct(td, struct_ptr, contents_only);
 }
 
 int
-ConditionTypes_print(asn_TYPE_descriptor_t *td, const void *struct_ptr,
+ConditionTypes_print(const asn_TYPE_descriptor_t *td, const void *struct_ptr,
 		int ilevel, asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	return td->print_struct(td, struct_ptr, ilevel, cb, app_key);
+	return td->op->print_struct(td, struct_ptr, ilevel, cb, app_key);
 }
 
 asn_dec_rval_t
-ConditionTypes_decode_ber(asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
+ConditionTypes_decode_ber(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
 		void **structure, const void *bufptr, size_t size, int tag_mode) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	return td->ber_decoder(opt_codec_ctx, td, structure, bufptr, size, tag_mode);
+	return td->op->ber_decoder(opt_codec_ctx, td, structure, bufptr, size, tag_mode);
 }
 
 asn_enc_rval_t
-ConditionTypes_encode_der(asn_TYPE_descriptor_t *td,
-		void *structure, int tag_mode, ber_tlv_tag_t tag,
+ConditionTypes_encode_der(const asn_TYPE_descriptor_t *td,
+		const void *structure, int tag_mode, ber_tlv_tag_t tag,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	return td->der_encoder(td, structure, tag_mode, tag, cb, app_key);
+	return td->op->der_encoder(td, structure, tag_mode, tag, cb, app_key);
 }
 
 asn_dec_rval_t
-ConditionTypes_decode_xer(asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
+ConditionTypes_decode_xer(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
 		void **structure, const char *opt_mname, const void *bufptr, size_t size) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	return td->xer_decoder(opt_codec_ctx, td, structure, opt_mname, bufptr, size);
+	return td->op->xer_decoder(opt_codec_ctx, td, structure, opt_mname, bufptr, size);
 }
 
 asn_enc_rval_t
-ConditionTypes_encode_xer(asn_TYPE_descriptor_t *td, void *structure,
+ConditionTypes_encode_xer(const asn_TYPE_descriptor_t *td, const void *structure,
 		int ilevel, enum xer_encoder_flags_e flags,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
-	return td->xer_encoder(td, structure, ilevel, flags, cb, app_key);
+	return td->op->xer_encoder(td, structure, ilevel, flags, cb, app_key);
 }
 
 static const ber_tlv_tag_t asn_DEF_ConditionTypes_tags_1[] = {
 	(ASN_TAG_CLASS_UNIVERSAL | (3 << 2))
 };
-asn_TYPE_descriptor_t asn_DEF_ConditionTypes = {
-	"ConditionTypes",
-	"ConditionTypes",
+
+static const asn_TYPE_operation_t asn_CHOICE_ConditionTypes = {
 	ConditionTypes_free,
 	ConditionTypes_print,
-	ConditionTypes_constraint,
+	0,
 	ConditionTypes_decode_ber,
 	ConditionTypes_encode_der,
 	ConditionTypes_decode_xer,
 	ConditionTypes_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	0,	/* Use generic outmost tag fetcher */
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};
+
+asn_TYPE_descriptor_t asn_DEF_ConditionTypes = {
+	"ConditionTypes",
+	"ConditionTypes",
+	&asn_CHOICE_ConditionTypes,
 	asn_DEF_ConditionTypes_tags_1,
 	sizeof(asn_DEF_ConditionTypes_tags_1)
 		/sizeof(asn_DEF_ConditionTypes_tags_1[0]), /* 1 */
 	asn_DEF_ConditionTypes_tags_1,	/* Same as above */
 	sizeof(asn_DEF_ConditionTypes_tags_1)
 		/sizeof(asn_DEF_ConditionTypes_tags_1[0]), /* 1 */
-	0,	/* No PER visible constraints */
-	0, 0,	/* Defined elsewhere */
+	{ 0, 0, ConditionTypes_constraint },
+	0, 
+	0,
 	0	/* No specifics */
 };
 
