@@ -27,12 +27,19 @@
 #include <sys/types.h>
 #endif// APPLE
 
-#ifdef _WIN32
+#ifdef __linux__ 
+
+#ifdef __i386__ || __X86_64__
+#include <x86intrin.h>
+#elif defined(__arm__)  || defined(__aarch64__)
+#include "crypto/SSE2NEON.h"
+#endif 
+
+#elif _WIN32
 #pragma warning (disable : 4146)
 #include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif //WIN32
+
+#endif
 
 void clmul64(uint64_t a, uint64_t b, uint64_t* r)
 {

@@ -23,6 +23,17 @@ SOFTWARE.
 
 Optimized Implementations for Haraka256 and Haraka512
 */
+#if defined(__arm__)  || defined(__aarch64__)
+#include "crypto/SSE2NEON.h"
+__m128i _mm_aesenc_si128 (__m128i a, __m128i RoundKey)
+{   //TODO intrinsic version of ARM AESENC
+    uint8x16_t a1; memcpy(&a1,&a,16);
+	uint8x16_t b1; memcpy(&b1,&RoundKey,16);
+	uint8x16_t c; //FIXME NEEDS -maes compile flags in ARM  = vaesmcq_u8(vaeseq_u8(a1, (uint8x16_t){})) ^ b1;
+	__m128i d; memcpy(&d,&c,16);
+	return d;
+}	
+#endif
 
 #include <stdio.h>
 #include "crypto/haraka.h"
