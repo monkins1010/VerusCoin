@@ -90,25 +90,46 @@ static asn_CHOICE_specifics_t asn_SPC_Condition_specs_1 = {
 	0,
 	-1	/* Extensions start */
 };
-asn_TYPE_descriptor_t asn_DEF_Condition = {
-	"Condition",
-	"Condition",
+
+asn_TYPE_operation_t asn_OP_CHOICE = {
 	CHOICE_free,
 	CHOICE_print,
-	CHOICE_constraint,
+	CHOICE_compare,
 	CHOICE_decode_ber,
 	CHOICE_encode_der,
 	CHOICE_decode_xer,
 	CHOICE_encode_xer,
-	0, 0,	/* No PER support, use "-gen-PER" to enable */
-	CHOICE_outmost_tag,
+#ifdef	ASN_DISABLE_OER_SUPPORT
+	0,
+	0,
+#else
+	CHOICE_decode_oer,
+	CHOICE_encode_oer,
+#endif  /* ASN_DISABLE_OER_SUPPORT */
+#ifdef ASN_DISABLE_PER_SUPPORT
+	0,
+	0,
+#else
+	CHOICE_decode_uper,
+	CHOICE_encode_uper,
+#endif	/* ASN_DISABLE_PER_SUPPORT */
+	CHOICE_random_fill,
+	CHOICE_outmost_tag
+};
+
+
+asn_TYPE_descriptor_t asn_DEF_Condition = {
+	"Condition",
+	"Condition",
+	&asn_OP_CHOICE,
 	0,	/* No effective tags (pointer) */
 	0,	/* No effective tags (count) */
 	0,	/* No tags (pointer) */
 	0,	/* No tags (count) */
-	0,	/* No PER visible constraints */
+	{ 0, 0, CHOICE_constraint },
 	asn_MBR_Condition_1,
 	7,	/* Elements count */
 	&asn_SPC_Condition_specs_1	/* Additional specs */
 };
+
 
