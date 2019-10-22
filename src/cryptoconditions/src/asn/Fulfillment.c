@@ -12,7 +12,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_PreimageFulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"preimageSha256"
@@ -22,7 +22,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_PrefixFulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"prefixSha256"
@@ -32,7 +32,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_ThresholdFulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"thresholdSha256"
@@ -42,7 +42,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_RsaSha256Fulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"rsaSha256"
@@ -52,7 +52,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_Ed25519Sha512Fulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"ed25519Sha256"
@@ -62,7 +62,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_Secp256k1Fulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"secp256k1Sha256"
@@ -72,7 +72,7 @@ static asn_TYPE_member_t asn_MBR_Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_EvalFulfillment,
 		0,	/* Defer constraints checking to the member type */
-		0,	/* PER is not compiled, use -gen-PER */
+		{0,0,0},	/* PER is not compiled, use -gen-PER */
 		0,
 		0,
 		"evalSha256"

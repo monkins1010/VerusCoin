@@ -74,7 +74,7 @@ static asn_TYPE_member_t asn_MBR_Ed25519Sha512Fulfillment_1[] = {
 		-1,	/* IMPLICIT tag at current level */
 		&asn_DEF_OCTET_STRING,
 		0,
-		{0,0,memb_publicKey_constraint_1},
+		{0,0,memb_signature_constraint_1},
 		0,	/* PER is not compiled, use -gen-PER */
 		0,
 		"signature"

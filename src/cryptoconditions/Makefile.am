@@ -80,8 +80,21 @@ libcryptoconditions_core_la_SOURCES = \
 	src/asn/per_encoder.c \
 	src/asn/per_opentype.c \
 	src/asn/asn_random_fill.c \
-	src/asn/constr_CHOICE_oer.c
-
+	src/asn/constr_CHOICE_oer.c \
+	src/asn/constr_SET_OF_oer.c \
+	src/asn/asn_bit_data.c \
+	src/asn/OCTET_STRING_oer.c \
+	src/asn/NativeInteger_oer.c \
+	src/asn/OPEN_TYPE.c \
+	src/asn/constr_SEQUENCE_oer.c \
+	src/asn/BIT_STRING_oer.c \
+	src/asn/asn_internal.c \
+	src/asn/oer_decoder.c \
+	src/asn/oer_support.c \
+	src/asn/oer_encoder.c \
+	src/asn/INTEGER_oer.c \
+	src/asn/OPEN_TYPE_oer.c
+	
 test:
 	bash -c '[ -d .env ] || virtualenv .env -p python3'
 	.env/bin/pip install pytest
