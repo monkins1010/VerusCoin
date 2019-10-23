@@ -62,7 +62,7 @@ asn_TYPE_descriptor_t asn_DEF_NativeInteger = {
  */
 asn_dec_rval_t
 NativeInteger_decode_ber(const asn_codec_ctx_t *opt_codec_ctx,
-                         const asn_TYPE_descriptor_t *td, void **nint_ptr,
+                         asn_TYPE_descriptor_t *td, void **nint_ptr,
                          const void *buf_ptr, size_t size, int tag_mode) {
     const asn_INTEGER_specifics_t *specs =
         (const asn_INTEGER_specifics_t *)td->specifics;
@@ -147,7 +147,7 @@ NativeInteger_decode_ber(const asn_codec_ctx_t *opt_codec_ctx,
  * Encode the NativeInteger using the standard INTEGER type DER encoder.
  */
 asn_enc_rval_t
-NativeInteger_encode_der(const asn_TYPE_descriptor_t *sd, const void *ptr,
+NativeInteger_encode_der(asn_TYPE_descriptor_t *sd, const void *ptr,
                          int tag_mode, ber_tlv_tag_t tag,
                          asn_app_consume_bytes_f *cb, void *app_key) {
     unsigned long native = *(const unsigned long *)ptr; /* Disable sign ext. */
@@ -184,7 +184,7 @@ NativeInteger_encode_der(const asn_TYPE_descriptor_t *sd, const void *ptr,
  */
 asn_dec_rval_t
 NativeInteger_decode_xer(const asn_codec_ctx_t *opt_codec_ctx,
-                         const asn_TYPE_descriptor_t *td, void **sptr,
+                         asn_TYPE_descriptor_t *td, void **sptr,
                          const char *opt_mname, const void *buf_ptr,
                          size_t size) {
     const asn_INTEGER_specifics_t *specs =
@@ -226,7 +226,7 @@ NativeInteger_decode_xer(const asn_codec_ctx_t *opt_codec_ctx,
 
 
 asn_enc_rval_t
-NativeInteger_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
+NativeInteger_encode_xer(asn_TYPE_descriptor_t *td, const void *sptr,
                          int ilevel, enum xer_encoder_flags_e flags,
                          asn_app_consume_bytes_f *cb, void *app_key) {
     const asn_INTEGER_specifics_t *specs =
@@ -254,7 +254,7 @@ NativeInteger_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
 
 asn_dec_rval_t
 NativeInteger_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
-                          const asn_TYPE_descriptor_t *td,
+                          asn_TYPE_descriptor_t *td,
                           const asn_per_constraints_t *constraints, void **sptr,
                           asn_per_data_t *pd) {
     const asn_INTEGER_specifics_t *specs =
@@ -290,7 +290,7 @@ NativeInteger_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 }
 
 asn_enc_rval_t
-NativeInteger_encode_uper(const asn_TYPE_descriptor_t *td,
+NativeInteger_encode_uper(asn_TYPE_descriptor_t *td,
                           const asn_per_constraints_t *constraints,
                           const void *sptr, asn_per_outp_t *po) {
     const asn_INTEGER_specifics_t *specs =
@@ -321,7 +321,7 @@ NativeInteger_encode_uper(const asn_TYPE_descriptor_t *td,
  * INTEGER specific human-readable output.
  */
 int
-NativeInteger_print(const asn_TYPE_descriptor_t *td, const void *sptr,
+NativeInteger_print(asn_TYPE_descriptor_t *td, const void *sptr,
                     int ilevel, asn_app_consume_bytes_f *cb, void *app_key) {
     const asn_INTEGER_specifics_t *specs =
         (const asn_INTEGER_specifics_t *)td->specifics;
@@ -354,7 +354,7 @@ NativeInteger_print(const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 void
-NativeInteger_free(const asn_TYPE_descriptor_t *td, void *ptr,
+NativeInteger_free(asn_TYPE_descriptor_t *td, void *ptr,
                    enum asn_struct_free_method method) {
     if(!td || !ptr)
 		return;
@@ -375,7 +375,7 @@ NativeInteger_free(const asn_TYPE_descriptor_t *td, void *ptr,
 }
 
 int
-NativeInteger_compare(const asn_TYPE_descriptor_t *td, const void *aptr, const void *bptr) {
+NativeInteger_compare(asn_TYPE_descriptor_t *td, const void *aptr, const void *bptr) {
     (void)td;
 
     if(aptr && bptr) {
@@ -410,7 +410,7 @@ NativeInteger_compare(const asn_TYPE_descriptor_t *td, const void *aptr, const v
 }
 
 asn_random_fill_result_t
-NativeInteger_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
+NativeInteger_random_fill(asn_TYPE_descriptor_t *td, void **sptr,
                           const asn_encoding_constraints_t *constraints,
                           size_t max_length) {
     const asn_INTEGER_specifics_t *specs =

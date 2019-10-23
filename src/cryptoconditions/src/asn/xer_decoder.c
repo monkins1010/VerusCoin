@@ -12,7 +12,7 @@
  */
 asn_dec_rval_t
 xer_decode(const asn_codec_ctx_t *opt_codec_ctx,
-           const asn_TYPE_descriptor_t *td, void **struct_ptr,
+           asn_TYPE_descriptor_t *td, void **struct_ptr,
            const void *buffer, size_t size) {
     asn_codec_ctx_t s_codec_ctx;
 

@@ -7,7 +7,7 @@
 #include "Secp256k1Fulfillment.h"
 
 static int
-memb_publicKey_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
+memb_publicKey_constraint_1(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
 	size_t size;
@@ -33,7 +33,7 @@ memb_publicKey_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 static int
-memb_signature_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
+memb_signature_constraint_1(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
 	size_t size;

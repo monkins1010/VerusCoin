@@ -61,7 +61,7 @@ asn_TYPE_descriptor_t asn_DEF_BIT_STRING = {
  * BIT STRING generic constraint.
  */
 int
-BIT_STRING_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
+BIT_STRING_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
                       asn_app_constraint_failed_f *ctfailcb, void *app_key) {
     const BIT_STRING_t *st = (const BIT_STRING_t *)sptr;
 
@@ -89,7 +89,7 @@ static const char *_bit_pattern[16] = {
 };
 
 asn_enc_rval_t
-BIT_STRING_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
+BIT_STRING_encode_xer(asn_TYPE_descriptor_t *td, const void *sptr,
                       int ilevel, enum xer_encoder_flags_e flags,
                       asn_app_consume_bytes_f *cb, void *app_key) {
     asn_enc_rval_t er;
@@ -151,7 +151,7 @@ cb_failed:
  * BIT STRING specific contents printer.
  */
 int
-BIT_STRING_print(const asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
+BIT_STRING_print(asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
                  asn_app_consume_bytes_f *cb, void *app_key) {
     const char * const h2c = "0123456789ABCDEF";
 	char scratch[64];
@@ -255,7 +255,7 @@ BIT_STRING__compactify(const BIT_STRING_t *st, BIT_STRING_t *tmp) {
  * and if it is the same return -1 for the smallest string.
  */
 int
-BIT_STRING_compare(const asn_TYPE_descriptor_t *td, const void *aptr,
+BIT_STRING_compare(asn_TYPE_descriptor_t *td, const void *aptr,
                    const void *bptr) {
     /*
      * Remove information about trailing bits, since
@@ -316,7 +316,7 @@ static asn_per_constraint_t asn_DEF_BIT_STRING_constraint_size = {
 
 asn_dec_rval_t
 BIT_STRING_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
-                       const asn_TYPE_descriptor_t *td,
+                       asn_TYPE_descriptor_t *td,
                        const asn_per_constraints_t *constraints, void **sptr,
                        asn_per_data_t *pd) {
     const asn_OCTET_STRING_specifics_t *specs = td->specifics
@@ -419,7 +419,7 @@ BIT_STRING_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 }
 
 asn_enc_rval_t
-BIT_STRING_encode_uper(const asn_TYPE_descriptor_t *td,
+BIT_STRING_encode_uper(asn_TYPE_descriptor_t *td,
                        const asn_per_constraints_t *constraints,
                        const void *sptr, asn_per_outp_t *po) {
     const asn_OCTET_STRING_specifics_t *specs =
@@ -542,7 +542,7 @@ BIT_STRING_encode_uper(const asn_TYPE_descriptor_t *td,
 #endif  /* ASN_DISABLE_PER_SUPPORT */
 
 asn_random_fill_result_t
-BIT_STRING_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
+BIT_STRING_random_fill(asn_TYPE_descriptor_t *td, void **sptr,
                        const asn_encoding_constraints_t *constraints,
                        size_t max_length) {
     const asn_OCTET_STRING_specifics_t *specs =

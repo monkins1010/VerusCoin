@@ -31,7 +31,7 @@ enum xer_pbd_rval {
     XPBD_BODY_CONSUMED    /* Body is recognized and consumed */
 };
 typedef enum xer_pbd_rval(xer_primitive_body_decoder_f)(
-    const asn_TYPE_descriptor_t *td, void *struct_ptr, const void *chunk_buf,
+    asn_TYPE_descriptor_t *td, void *struct_ptr, const void *chunk_buf,
     size_t chunk_size);
 
 /*
@@ -40,7 +40,7 @@ typedef enum xer_pbd_rval(xer_primitive_body_decoder_f)(
  */
 asn_dec_rval_t xer_decode_primitive(
     const asn_codec_ctx_t *opt_codec_ctx,
-    const asn_TYPE_descriptor_t *type_descriptor, void **struct_ptr,
+    asn_TYPE_descriptor_t *type_descriptor, void **struct_ptr,
     size_t struct_size, const char *opt_mname, const void *buf_ptr, size_t size,
     xer_primitive_body_decoder_f *prim_body_decoder);
 

@@ -9,7 +9,7 @@
  */
 asn_dec_rval_t
 uper_decode_complete(const asn_codec_ctx_t *opt_codec_ctx,
-                     const asn_TYPE_descriptor_t *td, void **sptr,
+                     asn_TYPE_descriptor_t *td, void **sptr,
                      const void *buffer, size_t size) {
     asn_dec_rval_t rval;
 
@@ -40,7 +40,7 @@ uper_decode_complete(const asn_codec_ctx_t *opt_codec_ctx,
 
 asn_dec_rval_t
 uper_decode(const asn_codec_ctx_t *opt_codec_ctx,
-            const asn_TYPE_descriptor_t *td, void **sptr, const void *buffer,
+            asn_TYPE_descriptor_t *td, void **sptr, const void *buffer,
             size_t size, int skip_bits, int unused_bits) {
     asn_codec_ctx_t s_codec_ctx;
 	asn_dec_rval_t rval;

@@ -57,7 +57,7 @@ asn_TYPE_descriptor_t asn_DEF_NativeEnumerated = {
 };
 
 asn_enc_rval_t
-NativeEnumerated_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
+NativeEnumerated_encode_xer(asn_TYPE_descriptor_t *td, const void *sptr,
                             int ilevel, enum xer_encoder_flags_e flags,
                             asn_app_consume_bytes_f *cb, void *app_key) {
     const asn_INTEGER_specifics_t *specs =
@@ -87,7 +87,7 @@ NativeEnumerated_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
 
 asn_dec_rval_t
 NativeEnumerated_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
-                             const asn_TYPE_descriptor_t *td,
+                             asn_TYPE_descriptor_t *td,
                              const asn_per_constraints_t *constraints,
                              void **sptr, asn_per_data_t *pd) {
     const asn_INTEGER_specifics_t *specs = td->specifics;
@@ -154,7 +154,7 @@ NativeEnumerated__compar_value2enum(const void *ap, const void *bp) {
 }
 
 asn_enc_rval_t
-NativeEnumerated_encode_uper(const asn_TYPE_descriptor_t *td,
+NativeEnumerated_encode_uper(asn_TYPE_descriptor_t *td,
                              const asn_per_constraints_t *constraints,
                              const void *sptr, asn_per_outp_t *po) {
     const asn_INTEGER_specifics_t *specs =

@@ -64,7 +64,7 @@ int OCTET_STRING_fromBuf(OCTET_STRING_t *s, const char *str, int size);
  * allocated object. NULL is permitted in str: the function will just allocate
  * empty OCTET STRING.
  */
-OCTET_STRING_t *OCTET_STRING_new_fromBuf(const asn_TYPE_descriptor_t *td,
+OCTET_STRING_t *OCTET_STRING_new_fromBuf(asn_TYPE_descriptor_t *td,
                                          const char *str, int size);
 
 /****************************
@@ -90,7 +90,7 @@ typedef struct asn_OCTET_STRING_specifics_s {
 extern asn_OCTET_STRING_specifics_t asn_SPC_OCTET_STRING_specs;
 
 size_t OCTET_STRING_random_length_constrained(
-    const asn_TYPE_descriptor_t *, const asn_encoding_constraints_t *,
+    asn_TYPE_descriptor_t *, const asn_encoding_constraints_t *,
     size_t max_length);
 
 #ifdef __cplusplus

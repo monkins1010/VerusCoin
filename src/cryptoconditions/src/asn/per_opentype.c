@@ -17,7 +17,7 @@ typedef struct uper_ugot_key {
 static int uper_ugot_refill(asn_per_data_t *pd);
 static int per_skip_bits(asn_per_data_t *pd, int skip_nbits);
 static asn_dec_rval_t uper_sot_suck(const asn_codec_ctx_t *,
-                                    const asn_TYPE_descriptor_t *td,
+                                    asn_TYPE_descriptor_t *td,
                                     const asn_per_constraints_t *constraints,
                                     void **sptr, asn_per_data_t *pd);
 
@@ -26,7 +26,7 @@ static asn_dec_rval_t uper_sot_suck(const asn_codec_ctx_t *,
  * #10.1, #10.2
  */
 int
-uper_open_type_put(const asn_TYPE_descriptor_t *td,
+uper_open_type_put(asn_TYPE_descriptor_t *td,
                    const asn_per_constraints_t *constraints, const void *sptr,
                    asn_per_outp_t *po) {
     void *buf;
@@ -66,7 +66,7 @@ uper_open_type_put(const asn_TYPE_descriptor_t *td,
 
 static asn_dec_rval_t
 uper_open_type_get_simple(const asn_codec_ctx_t *ctx,
-                          const asn_TYPE_descriptor_t *td,
+                          asn_TYPE_descriptor_t *td,
                           const asn_per_constraints_t *constraints, void **sptr,
                           asn_per_data_t *pd) {
     asn_dec_rval_t rv;
@@ -146,7 +146,7 @@ uper_open_type_get_simple(const asn_codec_ctx_t *ctx,
 
 static asn_dec_rval_t CC_NOTUSED
 uper_open_type_get_complex(const asn_codec_ctx_t *ctx,
-                           const asn_TYPE_descriptor_t *td,
+                           asn_TYPE_descriptor_t *td,
                            asn_per_constraints_t *constraints, void **sptr,
                            asn_per_data_t *pd) {
     uper_ugot_key arg;
@@ -257,7 +257,7 @@ uper_open_type_get_complex(const asn_codec_ctx_t *ctx,
 
 
 asn_dec_rval_t
-uper_open_type_get(const asn_codec_ctx_t *ctx, const asn_TYPE_descriptor_t *td,
+uper_open_type_get(const asn_codec_ctx_t *ctx, asn_TYPE_descriptor_t *td,
                    const asn_per_constraints_t *constraints, void **sptr,
                    asn_per_data_t *pd) {
     return uper_open_type_get_simple(ctx, td, constraints, sptr, pd);
@@ -285,7 +285,7 @@ uper_open_type_skip(const asn_codec_ctx_t *ctx, asn_per_data_t *pd) {
  */
 
 static asn_dec_rval_t
-uper_sot_suck(const asn_codec_ctx_t *ctx, const asn_TYPE_descriptor_t *td,
+uper_sot_suck(const asn_codec_ctx_t *ctx, asn_TYPE_descriptor_t *td,
               const asn_per_constraints_t *constraints, void **sptr,
               asn_per_data_t *pd) {
     asn_dec_rval_t rv;

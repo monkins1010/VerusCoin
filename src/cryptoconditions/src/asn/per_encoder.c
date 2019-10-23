@@ -13,7 +13,7 @@ ignore_output(const void *data, size_t size, void *app_key) {
 }
 
 asn_enc_rval_t
-uper_encode(const asn_TYPE_descriptor_t *td,
+uper_encode(asn_TYPE_descriptor_t *td,
             const asn_per_constraints_t *constraints, const void *sptr,
             asn_app_consume_bytes_f *cb, void *app_key) {
     asn_per_outp_t po;
@@ -68,7 +68,7 @@ static int encode_to_buffer_cb(const void *buffer, size_t size, void *key) {
 }
 
 asn_enc_rval_t
-uper_encode_to_buffer(const asn_TYPE_descriptor_t *td,
+uper_encode_to_buffer(asn_TYPE_descriptor_t *td,
                       const asn_per_constraints_t *constraints,
                       const void *sptr, void *buffer, size_t buffer_size) {
     enc_to_buf_arg key;
@@ -111,7 +111,7 @@ encode_dyn_cb(const void *buffer, size_t size, void *key) {
     return 0;
 }
 ssize_t
-uper_encode_to_new_buffer(const asn_TYPE_descriptor_t *td,
+uper_encode_to_new_buffer(asn_TYPE_descriptor_t *td,
                           const asn_per_constraints_t *constraints,
                           const void *sptr, void **buffer_r) {
     asn_enc_rval_t er;

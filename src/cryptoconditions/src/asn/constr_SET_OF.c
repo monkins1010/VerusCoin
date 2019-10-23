@@ -67,7 +67,7 @@
  */
 asn_dec_rval_t
 SET_OF_decode_ber(const asn_codec_ctx_t *opt_codec_ctx,
-                  const asn_TYPE_descriptor_t *td, void **struct_ptr,
+                  asn_TYPE_descriptor_t *td, void **struct_ptr,
                   const void *ptr, size_t size, int tag_mode) {
     /*
 	 * Bring closer parts of structure description.
@@ -418,7 +418,7 @@ SET_OF__encode_sorted(const asn_TYPE_member_t *elm,
  * The DER encoder of the SET OF type.
  */
 asn_enc_rval_t
-SET_OF_encode_der(const asn_TYPE_descriptor_t *td, const void *sptr,
+SET_OF_encode_der(asn_TYPE_descriptor_t *td, const void *sptr,
                   int tag_mode, ber_tlv_tag_t tag, asn_app_consume_bytes_f *cb,
                   void *app_key) {
     const asn_TYPE_member_t *elm = td->elements;
@@ -510,7 +510,7 @@ SET_OF_encode_der(const asn_TYPE_descriptor_t *td, const void *sptr,
  */
 asn_dec_rval_t
 SET_OF_decode_xer(const asn_codec_ctx_t *opt_codec_ctx,
-                  const asn_TYPE_descriptor_t *td, void **struct_ptr,
+                  asn_TYPE_descriptor_t *td, void **struct_ptr,
                   const char *opt_mname, const void *buf_ptr, size_t size) {
     /*
 	 * Bring closer parts of structure description.
@@ -694,7 +694,7 @@ SET_OF_xer_order(const void *aptr, const void *bptr) {
 
 
 asn_enc_rval_t
-SET_OF_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
+SET_OF_encode_xer(asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
                   enum xer_encoder_flags_e flags, asn_app_consume_bytes_f *cb,
                   void *app_key) {
     asn_enc_rval_t er;
@@ -793,7 +793,7 @@ cleanup:
 }
 
 int
-SET_OF_print(const asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
+SET_OF_print(asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
              asn_app_consume_bytes_f *cb, void *app_key) {
     asn_TYPE_member_t *elm = td->elements;
 	const asn_anonymous_set_ *list = _A_CSET_FROM_VOID(sptr);
@@ -825,7 +825,7 @@ SET_OF_print(const asn_TYPE_descriptor_t *td, const void *sptr, int ilevel,
 }
 
 void
-SET_OF_free(const asn_TYPE_descriptor_t *td, void *ptr,
+SET_OF_free(asn_TYPE_descriptor_t *td, void *ptr,
             enum asn_struct_free_method method) {
     if(td && ptr) {
 		const asn_SET_OF_specifics_t *specs;
@@ -868,7 +868,7 @@ SET_OF_free(const asn_TYPE_descriptor_t *td, void *ptr,
 }
 
 int
-SET_OF_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
+SET_OF_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
                   asn_app_constraint_failed_f *ctfailcb, void *app_key) {
     const asn_TYPE_member_t *elm = td->elements;
 	asn_constr_check_f *constr;
@@ -906,7 +906,7 @@ SET_OF_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
 
 asn_dec_rval_t
 SET_OF_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
-                   const asn_TYPE_descriptor_t *td,
+                   asn_TYPE_descriptor_t *td,
                    const asn_per_constraints_t *constraints, void **sptr,
                    asn_per_data_t *pd) {
     asn_dec_rval_t rv;
@@ -1000,7 +1000,7 @@ SET_OF_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 }
 
 asn_enc_rval_t
-SET_OF_encode_uper(const asn_TYPE_descriptor_t *td,
+SET_OF_encode_uper(asn_TYPE_descriptor_t *td,
                    const asn_per_constraints_t *constraints, const void *sptr,
                    asn_per_outp_t *po) {
     const asn_anonymous_set_ *list;
@@ -1101,7 +1101,7 @@ SET_OF_encode_uper(const asn_TYPE_descriptor_t *td,
 #endif  /* ASN_DISABLE_PER_SUPPORT */
 
 struct comparable_ptr {
-    const asn_TYPE_descriptor_t *td;
+    asn_TYPE_descriptor_t *td;
     const void *sptr;
 };
 
@@ -1114,7 +1114,7 @@ SET_OF__compare_cb(const void *aptr, const void *bptr) {
 }
 
 int
-SET_OF_compare(const asn_TYPE_descriptor_t *td, const void *aptr,
+SET_OF_compare(asn_TYPE_descriptor_t *td, const void *aptr,
                const void *bptr) {
     const asn_anonymous_set_ *a = _A_CSET_FROM_VOID(aptr);
     const asn_anonymous_set_ *b = _A_CSET_FROM_VOID(bptr);
@@ -1208,7 +1208,7 @@ asn_TYPE_operation_t asn_OP_SET_OF = {
 
 
 asn_random_fill_result_t
-SET_OF_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
+SET_OF_random_fill(asn_TYPE_descriptor_t *td, void **sptr,
                    const asn_encoding_constraints_t *constraints,
                    size_t max_length) {
     const asn_SET_OF_specifics_t *specs =

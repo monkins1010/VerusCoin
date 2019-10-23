@@ -2,7 +2,7 @@
 #include <constraints.h>
 
 int
-asn_generic_no_constraint(const asn_TYPE_descriptor_t *type_descriptor,
+asn_generic_no_constraint(asn_TYPE_descriptor_t *type_descriptor,
                           const void *struct_ptr,
                           asn_app_constraint_failed_f *cb, void *key) {
     (void)type_descriptor;	/* Unused argument */
@@ -15,7 +15,7 @@ asn_generic_no_constraint(const asn_TYPE_descriptor_t *type_descriptor,
 }
 
 int
-asn_generic_unknown_constraint(const asn_TYPE_descriptor_t *type_descriptor,
+asn_generic_unknown_constraint(asn_TYPE_descriptor_t *type_descriptor,
                                const void *struct_ptr,
                                asn_app_constraint_failed_f *cb, void *key) {
     (void)type_descriptor;	/* Unused argument */
@@ -28,14 +28,14 @@ asn_generic_unknown_constraint(const asn_TYPE_descriptor_t *type_descriptor,
 }
 
 struct errbufDesc {
-    const asn_TYPE_descriptor_t *failed_type;
+    asn_TYPE_descriptor_t *failed_type;
     const void *failed_struct_ptr;
 	char *errbuf;
 	size_t errlen;
 };
 
 static void
-_asn_i_ctfailcb(void *key, const asn_TYPE_descriptor_t *td, const void *sptr,
+_asn_i_ctfailcb(void *key, asn_TYPE_descriptor_t *td, const void *sptr,
                 const char *fmt, ...) {
     struct errbufDesc *arg = key;
 	va_list ap;
@@ -74,7 +74,7 @@ _asn_i_ctfailcb(void *key, const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 int
-asn_check_constraints(const asn_TYPE_descriptor_t *type_descriptor,
+asn_check_constraints(asn_TYPE_descriptor_t *type_descriptor,
                       const void *struct_ptr, char *errbuf, size_t *errlen) {
     struct errbufDesc arg;
     int ret;

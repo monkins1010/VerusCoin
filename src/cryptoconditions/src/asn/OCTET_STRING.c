@@ -178,7 +178,7 @@ _new_stack(void) {
  */
 asn_dec_rval_t
 OCTET_STRING_decode_ber(const asn_codec_ctx_t *opt_codec_ctx,
-                        const asn_TYPE_descriptor_t *td, void **sptr,
+                        asn_TYPE_descriptor_t *td, void **sptr,
                         const void *buf_ptr, size_t size, int tag_mode) {
     const asn_OCTET_STRING_specifics_t *specs = td->specifics
 				? (const asn_OCTET_STRING_specifics_t *)td->specifics
@@ -532,7 +532,7 @@ OCTET_STRING_decode_ber(const asn_codec_ctx_t *opt_codec_ctx,
  * Encode OCTET STRING type using DER.
  */
 asn_enc_rval_t
-OCTET_STRING_encode_der(const asn_TYPE_descriptor_t *td, const void *sptr,
+OCTET_STRING_encode_der(asn_TYPE_descriptor_t *td, const void *sptr,
                         int tag_mode, ber_tlv_tag_t tag,
                         asn_app_consume_bytes_f *cb, void *app_key) {
     asn_enc_rval_t er;
@@ -594,7 +594,7 @@ cb_failed:
 }
 
 asn_enc_rval_t
-OCTET_STRING_encode_xer(const asn_TYPE_descriptor_t *td, const void *sptr,
+OCTET_STRING_encode_xer(asn_TYPE_descriptor_t *td, const void *sptr,
                         int ilevel, enum xer_encoder_flags_e flags,
                         asn_app_consume_bytes_f *cb, void *app_key) {
     const char * const h2c = "0123456789ABCDEF";
@@ -746,7 +746,7 @@ OCTET_STRING__handle_control_chars(void *struct_ptr, const void *chunk_buf, size
 }
 
 asn_enc_rval_t
-OCTET_STRING_encode_xer_utf8(const asn_TYPE_descriptor_t *td, const void *sptr,
+OCTET_STRING_encode_xer_utf8(asn_TYPE_descriptor_t *td, const void *sptr,
                              int ilevel, enum xer_encoder_flags_e flags,
                              asn_app_consume_bytes_f *cb, void *app_key) {
     const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
@@ -1118,7 +1118,7 @@ OCTET_STRING__convert_entrefs(void *sptr, const void *chunk_buf,
  */
 static asn_dec_rval_t
 OCTET_STRING__decode_xer(
-    const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
+    const asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
     void **sptr, const char *opt_mname, const void *buf_ptr, size_t size,
     int (*opt_unexpected_tag_decoder)(void *struct_ptr, const void *chunk_buf,
                                       size_t chunk_size),
@@ -1176,7 +1176,7 @@ sta_failed:
  */
 asn_dec_rval_t
 OCTET_STRING_decode_xer_hex(const asn_codec_ctx_t *opt_codec_ctx,
-                            const asn_TYPE_descriptor_t *td, void **sptr,
+                            asn_TYPE_descriptor_t *td, void **sptr,
                             const char *opt_mname, const void *buf_ptr,
                             size_t size) {
     return OCTET_STRING__decode_xer(opt_codec_ctx, td, sptr, opt_mname,
@@ -1188,7 +1188,7 @@ OCTET_STRING_decode_xer_hex(const asn_codec_ctx_t *opt_codec_ctx,
  */
 asn_dec_rval_t
 OCTET_STRING_decode_xer_binary(const asn_codec_ctx_t *opt_codec_ctx,
-                               const asn_TYPE_descriptor_t *td, void **sptr,
+                               asn_TYPE_descriptor_t *td, void **sptr,
                                const char *opt_mname, const void *buf_ptr,
                                size_t size) {
     return OCTET_STRING__decode_xer(opt_codec_ctx, td, sptr, opt_mname,
@@ -1200,7 +1200,7 @@ OCTET_STRING_decode_xer_binary(const asn_codec_ctx_t *opt_codec_ctx,
  */
 asn_dec_rval_t
 OCTET_STRING_decode_xer_utf8(const asn_codec_ctx_t *opt_codec_ctx,
-                             const asn_TYPE_descriptor_t *td, void **sptr,
+                             asn_TYPE_descriptor_t *td, void **sptr,
                              const char *opt_mname, const void *buf_ptr,
                              size_t size) {
     return OCTET_STRING__decode_xer(opt_codec_ctx, td, sptr, opt_mname,
@@ -1352,7 +1352,7 @@ static asn_per_constraints_t asn_DEF_OCTET_STRING_constraints = {
 
 asn_dec_rval_t
 OCTET_STRING_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
-                         const asn_TYPE_descriptor_t *td,
+                         asn_TYPE_descriptor_t *td,
                          const asn_per_constraints_t *constraints, void **sptr,
                          asn_per_data_t *pd) {
     const asn_OCTET_STRING_specifics_t *specs = td->specifics
@@ -1501,7 +1501,7 @@ OCTET_STRING_decode_uper(const asn_codec_ctx_t *opt_codec_ctx,
 }
 
 asn_enc_rval_t
-OCTET_STRING_encode_uper(const asn_TYPE_descriptor_t *td,
+OCTET_STRING_encode_uper(asn_TYPE_descriptor_t *td,
                          const asn_per_constraints_t *constraints,
                          const void *sptr, asn_per_outp_t *po) {
     const asn_OCTET_STRING_specifics_t *specs = td->specifics
@@ -1646,7 +1646,7 @@ OCTET_STRING_encode_uper(const asn_TYPE_descriptor_t *td,
 #endif  /* ASN_DISABLE_PER_SUPPORT */
 
 int
-OCTET_STRING_print(const asn_TYPE_descriptor_t *td, const void *sptr,
+OCTET_STRING_print(asn_TYPE_descriptor_t *td, const void *sptr,
                    int ilevel, asn_app_consume_bytes_f *cb, void *app_key) {
     const char * const h2c = "0123456789ABCDEF";
 	const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
@@ -1688,7 +1688,7 @@ OCTET_STRING_print(const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 int
-OCTET_STRING_print_utf8(const asn_TYPE_descriptor_t *td, const void *sptr,
+OCTET_STRING_print_utf8(asn_TYPE_descriptor_t *td, const void *sptr,
                         int ilevel, asn_app_consume_bytes_f *cb,
                         void *app_key) {
     const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
@@ -1704,7 +1704,7 @@ OCTET_STRING_print_utf8(const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 void
-OCTET_STRING_free(const asn_TYPE_descriptor_t *td, void *sptr,
+OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr,
                   enum asn_struct_free_method method) {
 	OCTET_STRING_t *st = (OCTET_STRING_t *)sptr;
 	const asn_OCTET_STRING_specifics_t *specs;
@@ -1796,7 +1796,7 @@ OCTET_STRING_fromBuf(OCTET_STRING_t *st, const char *str, int len) {
 }
 
 OCTET_STRING_t *
-OCTET_STRING_new_fromBuf(const asn_TYPE_descriptor_t *td, const char *str,
+OCTET_STRING_new_fromBuf(asn_TYPE_descriptor_t *td, const char *str,
                          int len) {
     const asn_OCTET_STRING_specifics_t *specs =
         td->specifics ? (const asn_OCTET_STRING_specifics_t *)td->specifics
@@ -1817,7 +1817,7 @@ OCTET_STRING_new_fromBuf(const asn_TYPE_descriptor_t *td, const char *str,
  * and if it is the same return -1 for the smallest string.
  */
 int
-OCTET_STRING_compare(const asn_TYPE_descriptor_t *td, const void *aptr,
+OCTET_STRING_compare(asn_TYPE_descriptor_t *td, const void *aptr,
                      const void *bptr) {
     const asn_OCTET_STRING_specifics_t *specs = td->specifics;
     const OCTET_STRING_t *a = aptr;
@@ -1875,7 +1875,7 @@ OCTET_STRING__random_char(unsigned long lb, unsigned long ub) {
 
 size_t
 OCTET_STRING_random_length_constrained(
-    const asn_TYPE_descriptor_t *td,
+    asn_TYPE_descriptor_t *td,
     const asn_encoding_constraints_t *constraints, size_t max_length) {
     const unsigned lengths[] = {0,     1,     2,     3,     4,     8,
                                 126,   127,   128,   16383, 16384, 16385,
@@ -1933,7 +1933,7 @@ OCTET_STRING_random_length_constrained(
 }
 
 asn_random_fill_result_t
-OCTET_STRING_random_fill(const asn_TYPE_descriptor_t *td, void **sptr,
+OCTET_STRING_random_fill(asn_TYPE_descriptor_t *td, void **sptr,
                          const asn_encoding_constraints_t *constraints,
                          size_t max_length) {
 	const asn_OCTET_STRING_specifics_t *specs = td->specifics

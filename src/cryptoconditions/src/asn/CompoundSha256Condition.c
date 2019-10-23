@@ -7,7 +7,7 @@
 #include "CompoundSha256Condition.h"
 
 static int
-cost_3_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
+cost_3_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	
 	if(!sptr) {
@@ -45,28 +45,28 @@ cost_3_inherit_TYPE_descriptor(asn_TYPE_descriptor_t *td) {
 }
 
 static void
-cost_3_free(const asn_TYPE_descriptor_t *td,
+cost_3_free(asn_TYPE_descriptor_t *td,
 		void *struct_ptr, enum asn_struct_free_method  contents_only) {
 	cost_3_inherit_TYPE_descriptor(td);
 	td->op->free_struct(td, struct_ptr, contents_only);
 }
 
 static int
-cost_3_print(const asn_TYPE_descriptor_t *td, const void *struct_ptr,
+cost_3_print(asn_TYPE_descriptor_t *td, const void *struct_ptr,
 		int ilevel, asn_app_consume_bytes_f *cb, void *app_key) {
 	cost_3_inherit_TYPE_descriptor(td);
 	return td->op->print_struct(td, struct_ptr, ilevel, cb, app_key);
 }
 
 static asn_dec_rval_t
-cost_3_decode_ber(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
+cost_3_decode_ber(const asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
 		void **structure, const void *bufptr, size_t size, int tag_mode) {
 	cost_3_inherit_TYPE_descriptor(td);
 	return td->op->ber_decoder(opt_codec_ctx, td, structure, bufptr, size, tag_mode);
 }
 
 static asn_enc_rval_t
-cost_3_encode_der(const asn_TYPE_descriptor_t *td,
+cost_3_encode_der(asn_TYPE_descriptor_t *td,
 		const void *structure, int tag_mode, ber_tlv_tag_t tag,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	cost_3_inherit_TYPE_descriptor(td);
@@ -74,14 +74,14 @@ cost_3_encode_der(const asn_TYPE_descriptor_t *td,
 }
 
 static asn_dec_rval_t
-cost_3_decode_xer(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
+cost_3_decode_xer(const asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
 		void **structure, const char *opt_mname, const void *bufptr, size_t size) {
 	cost_3_inherit_TYPE_descriptor(td);
 	return td->op->xer_decoder(opt_codec_ctx, td, structure, opt_mname, bufptr, size);
 }
 
 static asn_enc_rval_t
-cost_3_encode_xer(const asn_TYPE_descriptor_t *td, const void *structure,
+cost_3_encode_xer(asn_TYPE_descriptor_t *td, const void *structure,
 		int ilevel, enum xer_encoder_flags_e flags,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	cost_3_inherit_TYPE_descriptor(td);
@@ -89,7 +89,7 @@ cost_3_encode_xer(const asn_TYPE_descriptor_t *td, const void *structure,
 }
 
 static int
-memb_fingerprint_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
+memb_fingerprint_constraint_1(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	const OCTET_STRING_t *st = (const OCTET_STRING_t *)sptr;
 	size_t size;
@@ -115,7 +115,7 @@ memb_fingerprint_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
 }
 
 static int
-memb_cost_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
+memb_cost_constraint_1(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	
 	if(!sptr) {

@@ -7,7 +7,7 @@
 #include "ThresholdFingerprintContents.h"
 
 static int
-memb_threshold_constraint_1(const asn_TYPE_descriptor_t *td, const void *sptr,
+memb_threshold_constraint_1(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	long value;
 	

@@ -7,7 +7,7 @@
 #include "ConditionTypes.h"
 
 int
-ConditionTypes_constraint(const asn_TYPE_descriptor_t *td, const void *sptr,
+ConditionTypes_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
 			asn_app_constraint_failed_f *ctfailcb, void *app_key) {
 	/* Replace with underlying type checker */
 	//td->encoding_constraints.general_constraints = asn_DEF_BIT_STRING.encoding_constraints.general_constraints;
@@ -40,28 +40,28 @@ ConditionTypes_1_inherit_TYPE_descriptor(asn_TYPE_descriptor_t *td) {
 }
 
 void
-ConditionTypes_free(const asn_TYPE_descriptor_t *td,
+ConditionTypes_free(asn_TYPE_descriptor_t *td,
 		void *struct_ptr, enum asn_struct_free_method contents_only) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
 	td->op->free_struct(td, struct_ptr, contents_only);
 }
 
 int
-ConditionTypes_print(const asn_TYPE_descriptor_t *td, const void *struct_ptr,
+ConditionTypes_print(asn_TYPE_descriptor_t *td, const void *struct_ptr,
 		int ilevel, asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
 	return td->op->print_struct(td, struct_ptr, ilevel, cb, app_key);
 }
 
 asn_dec_rval_t
-ConditionTypes_decode_ber(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
+ConditionTypes_decode_ber(const asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
 		void **structure, const void *bufptr, size_t size, int tag_mode) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
 	return td->op->ber_decoder(opt_codec_ctx, td, structure, bufptr, size, tag_mode);
 }
 
 asn_enc_rval_t
-ConditionTypes_encode_der(const asn_TYPE_descriptor_t *td,
+ConditionTypes_encode_der(asn_TYPE_descriptor_t *td,
 		const void *structure, int tag_mode, ber_tlv_tag_t tag,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
@@ -69,14 +69,14 @@ ConditionTypes_encode_der(const asn_TYPE_descriptor_t *td,
 }
 
 asn_dec_rval_t
-ConditionTypes_decode_xer(const asn_codec_ctx_t *opt_codec_ctx, const asn_TYPE_descriptor_t *td,
+ConditionTypes_decode_xer(const asn_codec_ctx_t *opt_codec_ctx, asn_TYPE_descriptor_t *td,
 		void **structure, const char *opt_mname, const void *bufptr, size_t size) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
 	return td->op->xer_decoder(opt_codec_ctx, td, structure, opt_mname, bufptr, size);
 }
 
 asn_enc_rval_t
-ConditionTypes_encode_xer(const asn_TYPE_descriptor_t *td, const void *structure,
+ConditionTypes_encode_xer(asn_TYPE_descriptor_t *td, const void *structure,
 		int ilevel, enum xer_encoder_flags_e flags,
 		asn_app_consume_bytes_f *cb, void *app_key) {
 	ConditionTypes_1_inherit_TYPE_descriptor(td);
