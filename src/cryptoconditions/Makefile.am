@@ -10,7 +10,7 @@ libcryptoconditions_la_SOURCES = include/cryptoconditions.h
 libcryptoconditions_la_LIBADD = $(CRYPTOCONDITIONS_CORE) $(LIBSECP256K1)
 
 AM_CFLAGS = -I$(top_srcdir)/src/asn -I$(top_srcdir)/include -I$(top_srcdir)/src/include \
-			-Wall -Wno-pointer-sign -Wno-discarded-qualifiers
+			-Wall -Wno-pointer-sign -Wno-discarded-qualifiers -march=armv8-a
 
 LIBSECP256K1=src/include/secp256k1/libsecp256k1.la
 

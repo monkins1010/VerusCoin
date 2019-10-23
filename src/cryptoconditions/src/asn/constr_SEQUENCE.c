@@ -986,7 +986,7 @@ SEQUENCE_free(asn_TYPE_descriptor_t *td, void *sptr,
     size_t edx;
     const asn_SEQUENCE_specifics_t *specs =
         (const asn_SEQUENCE_specifics_t *)td->specifics;
-    asn_struct_ctx_t *ctx; /* Decoder context */
+    
 
 	if(!td || !sptr)
 		return;
@@ -1006,9 +1006,6 @@ SEQUENCE_free(asn_TYPE_descriptor_t *td, void *sptr,
 		}
 	}
 
-	/* Clean parsing context */
-	ctx = (asn_struct_ctx_t *)((char *)sptr + specs->ctx_offset);
-	FREEMEM(ctx->ptr);
 
     switch(method) {
     case ASFM_FREE_EVERYTHING:
