@@ -20,7 +20,7 @@ struct asn_TYPE_descriptor_s;	/* Forward declaration */
  */
 asn_dec_rval_t uper_decode_complete(
     const struct asn_codec_ctx_s *opt_codec_ctx,
-    const struct asn_TYPE_descriptor_s *type_descriptor, /* Type to decode */
+    struct asn_TYPE_descriptor_s *type_descriptor, /* Type to decode */
     void **struct_ptr,  /* Pointer to a target structure's pointer */
     const void *buffer, /* Data to be decoded */
     size_t size         /* Size of data buffer */
@@ -32,7 +32,7 @@ asn_dec_rval_t uper_decode_complete(
  */
 asn_dec_rval_t uper_decode(
     const struct asn_codec_ctx_s *opt_codec_ctx,
-    const struct asn_TYPE_descriptor_s *type_descriptor, /* Type to decode */
+    struct asn_TYPE_descriptor_s *type_descriptor, /* Type to decode */
     void **struct_ptr,  /* Pointer to a target structure's pointer */
     const void *buffer, /* Data to be decoded */
     size_t size,        /* Size of the input data buffer, in bytes */
@@ -46,7 +46,7 @@ asn_dec_rval_t uper_decode(
  */
 typedef asn_dec_rval_t(per_type_decoder_f)(
     const asn_codec_ctx_t *opt_codec_ctx,
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const asn_per_constraints_t *constraints, void **struct_ptr,
     asn_per_data_t *per_data);
 

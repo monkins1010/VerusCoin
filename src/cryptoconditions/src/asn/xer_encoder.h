@@ -24,7 +24,7 @@ enum xer_encoder_flags_e {
  * The XER encoder of any type. May be invoked by the application.
  * Produces CANONICAL-XER and BASIC-XER depending on the (xer_flags).
  */
-asn_enc_rval_t xer_encode(const struct asn_TYPE_descriptor_s *type_descriptor,
+asn_enc_rval_t xer_encode(struct asn_TYPE_descriptor_s *type_descriptor,
                           const void *struct_ptr, /* Structure to be encoded */
                           enum xer_encoder_flags_e xer_flags,
                           asn_app_consume_bytes_f *consume_bytes_cb,
@@ -39,7 +39,7 @@ asn_enc_rval_t xer_encode(const struct asn_TYPE_descriptor_s *type_descriptor,
  * 	-1: Problem printing the structure.
  * WARNING: No sensible errno value is returned.
  */
-int xer_fprint(FILE *stream, const struct asn_TYPE_descriptor_s *td,
+int xer_fprint(FILE *stream, struct asn_TYPE_descriptor_s *td,
                const void *struct_ptr);
 
 /*
@@ -61,14 +61,14 @@ enum xer_equivalence_e {
     XEQ_ROUND_TRIP_FAILED /* Bad round-trip */
 };
 enum xer_equivalence_e xer_equivalent(
-    const struct asn_TYPE_descriptor_s *type_descriptor, const void *struct1,
+    struct asn_TYPE_descriptor_s *type_descriptor, const void *struct1,
     const void *struct2, FILE *opt_debug_stream);
 
 /*
  * Type of the generic XER encoder.
  */
 typedef asn_enc_rval_t(xer_type_encoder_f)(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const void *struct_ptr, /* Structure to be encoded */
     int ilevel,             /* Level of indentation */
     enum xer_encoder_flags_e xer_flags,

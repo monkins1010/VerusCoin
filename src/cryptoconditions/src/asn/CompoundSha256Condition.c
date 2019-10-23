@@ -28,15 +28,15 @@ cost_3_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
  */
 static void
 cost_3_inherit_TYPE_descriptor(asn_TYPE_descriptor_t *td) {
-	td->op->free_struct    = asn_DEF_NativeInteger.op->free_struct;
-	td->op->print_struct   = asn_DEF_NativeInteger.op->print_struct;
+	td->op    = asn_DEF_NativeInteger.op;
+	/*td->op->print_struct   = asn_DEF_NativeInteger.op->print_struct;*/
 	td->encoding_constraints = asn_DEF_NativeInteger.encoding_constraints;
-	td->op->ber_decoder    = asn_DEF_NativeInteger.op->ber_decoder;
-	td->op->der_encoder    = asn_DEF_NativeInteger.op->der_encoder;
-	td->op->xer_decoder    = asn_DEF_NativeInteger.op->xer_decoder;
-	td->op->xer_encoder    = asn_DEF_NativeInteger.op->xer_encoder;
-	td->op->uper_decoder   = asn_DEF_NativeInteger.op->uper_decoder;
-	td->op->uper_encoder   = asn_DEF_NativeInteger.op->uper_encoder;
+/*	td->op->ber_decoder    = &asn_DEF_NativeInteger.op->ber_decoder;
+	td->op->der_encoder    = &asn_DEF_NativeInteger.op->der_encoder;
+	td->op->xer_decoder    = &asn_DEF_NativeInteger.op->xer_decoder;
+	td->op->xer_encoder    = &asn_DEF_NativeInteger.op->xer_encoder;
+	td->op->uper_decoder   = &asn_DEF_NativeInteger.op->uper_decoder;
+	td->op->uper_encoder   = &asn_DEF_NativeInteger.op->uper_encoder;*/
 	if(!td->encoding_constraints.per_constraints)
 		td->encoding_constraints.per_constraints = asn_DEF_NativeInteger.encoding_constraints.per_constraints;
 	td->elements       = asn_DEF_NativeInteger.elements;

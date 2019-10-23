@@ -21,7 +21,7 @@ struct asn_TYPE_descriptor_s;	/* Forward declaration */
  * 	bytes = ((.encoded + 7) / 8)
  */
 asn_enc_rval_t uper_encode(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const asn_per_constraints_t *constraints,
     const void *struct_ptr,                    /* Structure to be encoded */
     asn_app_consume_bytes_f *consume_bytes_cb, /* Data collector */
@@ -34,7 +34,7 @@ asn_enc_rval_t uper_encode(
  * field of the return value.
  */
 asn_enc_rval_t uper_encode_to_buffer(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const asn_per_constraints_t *constraints,
     const void *struct_ptr, /* Structure to be encoded */
     void *buffer,           /* Pre-allocated buffer */
@@ -49,7 +49,7 @@ asn_enc_rval_t uper_encode_to_buffer(
  * encoding of uper_encode() and uper_encode_to_buffer().
  */
 ssize_t uper_encode_to_new_buffer(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const asn_per_constraints_t *constraints,
     const void *struct_ptr, /* Structure to be encoded */
     void **buffer_r         /* Buffer allocated and returned */
@@ -59,7 +59,7 @@ ssize_t uper_encode_to_new_buffer(
  * Type of the generic PER encoder function.
  */
 typedef asn_enc_rval_t(per_type_encoder_f)(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const asn_per_constraints_t *constraints, const void *struct_ptr,
     asn_per_outp_t *per_output);
 

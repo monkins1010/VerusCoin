@@ -30,7 +30,7 @@ typedef struct asn_random_fill_result_s {
     size_t length; /* Approximate number of bytes created. */
 } asn_random_fill_result_t;
 typedef asn_random_fill_result_t(asn_random_fill_f)(
-    const struct asn_TYPE_descriptor_s *td, void **struct_ptr,
+    struct asn_TYPE_descriptor_s *td, void **struct_ptr,
     const struct asn_encoding_constraints_s *memb_constraints,
     size_t max_length);
 
@@ -40,7 +40,7 @@ typedef asn_random_fill_result_t(asn_random_fill_f)(
  * resulting structure in units closely resembling bytes. The actual result
  * might be several times larger or smaller than the length limit.
  */
-int asn_random_fill(const struct asn_TYPE_descriptor_s *td, void **struct_ptr,
+int asn_random_fill(struct asn_TYPE_descriptor_s *td, void **struct_ptr,
                     size_t approx_max_length_limit);
 
 /*

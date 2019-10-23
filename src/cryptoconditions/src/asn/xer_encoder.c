@@ -95,7 +95,7 @@ xer__buffer_append(const void *buffer, size_t size, void *app_key) {
 }
 
 enum xer_equivalence_e
-xer_equivalent(const struct asn_TYPE_descriptor_s *td, const void *struct1,
+xer_equivalent(struct asn_TYPE_descriptor_s *td, const void *struct1,
                const void *struct2, FILE *opt_debug_stream) {
     struct xer_buffer xb1 = {0, 0, 0};
     struct xer_buffer xb2 = {0, 0, 0};

@@ -63,7 +63,7 @@ enum asn_struct_free_method {
     ASFM_FREE_UNDERLYING_AND_RESET   /* FREE_UNDERLYING + memset(0) */
 };
 typedef void (asn_struct_free_f)(
-		const struct asn_TYPE_descriptor_s *type_descriptor,
+		struct asn_TYPE_descriptor_s *type_descriptor,
 		void *struct_ptr, enum asn_struct_free_method);
 
 /*
@@ -97,7 +97,7 @@ typedef void (asn_struct_free_f)(
  * Print the structure according to its specification.
  */
 typedef int(asn_struct_print_f)(
-    const struct asn_TYPE_descriptor_s *type_descriptor,
+    struct asn_TYPE_descriptor_s *type_descriptor,
     const void *struct_ptr,
     int level, /* Indentation level */
     asn_app_consume_bytes_f *callback, void *app_key);
@@ -109,7 +109,7 @@ typedef int(asn_struct_print_f)(
  * "smaller", "greater" and "equal to".
  */
 typedef int (asn_struct_compare_f)(
-		const struct asn_TYPE_descriptor_s *type_descriptor,
+		struct asn_TYPE_descriptor_s *type_descriptor,
 		const void *struct_A,
 		const void *struct_B);
 
@@ -120,7 +120,7 @@ typedef int (asn_struct_compare_f)(
  * Do not use it in your application.
  */
 typedef ber_tlv_tag_t (asn_outmost_tag_f)(
-		const struct asn_TYPE_descriptor_s *type_descriptor,
+		struct asn_TYPE_descriptor_s *type_descriptor,
 		const void *struct_ptr, int tag_mode, ber_tlv_tag_t tag);
 /* The instance of the above function type; used internally. */
 asn_outmost_tag_f asn_TYPE_outmost_tag;
@@ -130,11 +130,11 @@ asn_outmost_tag_f asn_TYPE_outmost_tag;
  * Information Object Set driven constraints.
  */
 typedef struct asn_type_selector_result_s {
-    const struct asn_TYPE_descriptor_s *type_descriptor; /* Type encoded. */
+    struct asn_TYPE_descriptor_s *type_descriptor; /* Type encoded. */
     unsigned presence_index; /* Associated choice variant. */
 } asn_type_selector_result_t;
 typedef asn_type_selector_result_t(asn_type_selector_f)(
-    const struct asn_TYPE_descriptor_s *parent_type_descriptor,
+    struct asn_TYPE_descriptor_s *parent_type_descriptor,
     const void *parent_structure_ptr);
 
 /*

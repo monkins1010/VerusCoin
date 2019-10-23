@@ -12,7 +12,7 @@ ConditionTypes_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
 	/* Replace with underlying type checker */
 	//td->encoding_constraints.general_constraints = asn_DEF_BIT_STRING.encoding_constraints.general_constraints;
 	// *******   CHECK  ************ above is remmed out because of change of typedef int(asn_constr_check_f)(
-	//const struct asn_TYPE_descriptor_s *type_descriptor,   it wasnt a const trcut before
+	//struct asn_TYPE_descriptor_s *type_descriptor,   it wasnt a const trcut before
 	// I think the below static void sets the eoncoding constraint now however
 	return td->encoding_constraints.general_constraints(td, sptr, ctfailcb, app_key);
 }
@@ -23,15 +23,15 @@ ConditionTypes_constraint(asn_TYPE_descriptor_t *td, const void *sptr,
  */
 static void
 ConditionTypes_1_inherit_TYPE_descriptor(asn_TYPE_descriptor_t *td) {
-	td->op->free_struct    = asn_DEF_BIT_STRING.op->free_struct;
-	td->op->print_struct   = asn_DEF_BIT_STRING.op->print_struct;
+	td->op   = asn_DEF_BIT_STRING.op;
+/*	td->op->print_struct   = asn_DEF_BIT_STRING.op->print_struct;*/
 	td->encoding_constraints = asn_DEF_BIT_STRING.encoding_constraints;
-	td->op->ber_decoder    = asn_DEF_BIT_STRING.op->ber_decoder;
+/*	td->op->ber_decoder    = asn_DEF_BIT_STRING.op->ber_decoder;
 	td->op->der_encoder    = asn_DEF_BIT_STRING.op->der_encoder;
 	td->op->xer_decoder    = asn_DEF_BIT_STRING.op->xer_decoder;
 	td->op->xer_encoder    = asn_DEF_BIT_STRING.op->xer_encoder;
 	td->op->uper_decoder   = asn_DEF_BIT_STRING.op->uper_decoder;
-	td->op->uper_encoder   = asn_DEF_BIT_STRING.op->uper_encoder;
+	td->op->uper_encoder   = asn_DEF_BIT_STRING.op->uper_encoder;*/
 	if(!td->encoding_constraints.per_constraints)
 		td->encoding_constraints.per_constraints = asn_DEF_BIT_STRING.encoding_constraints.per_constraints;
 	td->elements       = asn_DEF_BIT_STRING.elements;

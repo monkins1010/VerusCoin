@@ -8,7 +8,7 @@
 #include <constr_TYPE.h>
 
 int
-asn_random_fill(const struct asn_TYPE_descriptor_s *td, void **struct_ptr,
+asn_random_fill(struct asn_TYPE_descriptor_s *td, void **struct_ptr,
                 size_t length) {
 
     if(td && td->op->random_fill) {
