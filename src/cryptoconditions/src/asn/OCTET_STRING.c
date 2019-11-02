@@ -1734,6 +1734,7 @@ OCTET_STRING_free(asn_TYPE_descriptor_t *td, void *sptr,
 		while(stck->tail) {
 			struct _stack_el *sel = stck->tail;
 			stck->tail = sel->prev;
+			if(!sel)
 			FREEMEM(sel);
 		}
 		FREEMEM(stck);

@@ -200,7 +200,7 @@ static asn_SEQUENCE_specifics_t asn_SPC_PrefixFingerprintContents_specs_1 = {
 static const asn_TYPE_operation_t asn_CHOICE_PrefixFingerprintContents = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	0,
+	SEQUENCE_compare,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,

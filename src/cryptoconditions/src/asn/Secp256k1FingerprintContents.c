@@ -63,7 +63,7 @@ static asn_SEQUENCE_specifics_t asn_SPC_Secp256k1FingerprintContents_specs_1 = {
 static const asn_TYPE_operation_t asn_CHOICE_Secp256k1FingerprintContents = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	0,
+	SEQUENCE_compare,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,

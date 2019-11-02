@@ -56,7 +56,7 @@ static asn_SET_OF_specifics_t asn_SPC_subconditions2_specs_3 = {
 static const asn_TYPE_operation_t asn_CHOICE_subconditions2_3 = {
 	SET_OF_free,
 	SET_OF_print,
-	0,
+	SET_OF_compare,
 	SET_OF_decode_ber,
 	SET_OF_encode_der,
 	SET_OF_decode_xer,
@@ -127,7 +127,7 @@ static asn_SEQUENCE_specifics_t asn_SPC_ThresholdFingerprintContents_specs_1 = {
 static const asn_TYPE_operation_t asn_CHOICE_ThresholdFingerprintContents = {
 	SEQUENCE_free,
 	SEQUENCE_print,
-	0,
+	SEQUENCE_compare,
 	SEQUENCE_decode_ber,
 	SEQUENCE_encode_der,
 	SEQUENCE_decode_xer,

@@ -86,6 +86,11 @@ char *cc_conditionUri(const CC *cond) {
 
 ConditionTypes_t asnSubtypes(uint32_t mask) {
     ConditionTypes_t types;
+    types._asn_ctx.context = 0;
+    types._asn_ctx.left = 0;
+    types._asn_ctx.phase = 0;
+    types._asn_ctx.ptr = 0;
+    types._asn_ctx.step = 0;
     uint8_t buf[4] = {0,0,0,0};
     int maxId = 0;
 
