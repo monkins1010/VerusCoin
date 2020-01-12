@@ -171,12 +171,16 @@ UniValue CCurrencyState::ToUniValue() const
 {
     UniValue ret(UniValue::VOBJ);
     ret.push_back(Pair("flags", (int32_t)flags));
-    ret.push_back(Pair("initialratio", ValueFromAmount(InitialRatio)));
     ret.push_back(Pair("initialsupply", ValueFromAmount(InitialSupply)));
     ret.push_back(Pair("emitted", ValueFromAmount(Emitted)));
     ret.push_back(Pair("supply", ValueFromAmount(Supply)));
-    ret.push_back(Pair("reserve", ValueFromAmount(Reserve)));
-    ret.push_back(Pair("priceinreserve", ValueFromAmount(PriceInReserve())));
+
+    if (IsReserve())
+    {
+        ret.push_back(Pair("initialratio", ValueFromAmount(InitialRatio)));
+        ret.push_back(Pair("reserve", ValueFromAmount(Reserve)));
+        ret.push_back(Pair("priceinreserve", ValueFromAmount(PriceInReserve())));
+    }
     return ret;
 }
 
@@ -332,6 +336,119 @@ CAmount CCurrencyState::ConvertAmounts(CAmount inputReserve, CAmount inputFracti
     return conversionPrice;
 }
 
+// This can handle multiple aggregated, bidirectional conversions in one block of transactions. To determine the conversion price, it 
+// takes both input amounts of the reserve and the fractional currency to merge the conversion into one calculation
+// with the same price for all transactions in the block. It returns the newly calculated conversion price of the fractional 
+// reserve in the reserve currency.
+std::vector<CAmount> CCurrencyState::ConvertAmounts(const std::vector<CAmount> &inputReserves, CAmount inputFractional, CCurrencyState &newState) const
+{
+    newState = *this;
+    CAmount conversionPrice = PriceInReserve();
+
+    CAmount inputReserve = inputReserves.size() ? inputReserves[0] : 0;
+
+    int64_t totalFractionalOut = 0;     // how much fractional goes to buyers
+    int64_t totalReserveOut = 0;        // how much reserve goes to sellers
+
+    // if both conversions are zero, nothing to do but return current price
+    if ((!inputReserve && !inputFractional) || !(flags & ISRESERVE))
+    {
+        return std::vector<CAmount>({conversionPrice});
+    }
+
+    // first, cancel out all parity at the current price, leaving one or the other amount to be converted, but not both
+    // that results in consistently minimum slippage in either direction
+    CAmount reserveOffset = NativeToReserve(inputFractional, conversionPrice);
+    CAmount convertFractional = 0, convertReserve = 0;
+    if (inputReserve >= reserveOffset)
+    {
+        convertReserve = inputReserve - reserveOffset;
+        totalFractionalOut += inputFractional;
+    }
+    else
+    {
+        CAmount fractionalOffset = ReserveToNative(inputReserve, conversionPrice);
+        convertFractional = inputFractional - fractionalOffset;
+        if (convertFractional < 0)
+        {
+            convertFractional = 0;
+        }
+        totalReserveOut += inputReserve;
+    }
+
+    if (!convertReserve && !convertFractional)
+    {
+        return std::vector<CAmount>({conversionPrice});
+    }
+
+    cpp_dec_float_50 reservein(std::to_string(convertReserve));
+    cpp_dec_float_50 fractionalin(std::to_string(convertFractional));
+    cpp_dec_float_50 supply(std::to_string((Supply)));
+    cpp_dec_float_50 reserve(std::to_string(Reserve));
+    cpp_dec_float_50 ratio = GetReserveRatio();
+    cpp_dec_float_50 one("1");
+    cpp_dec_float_50 dec_satoshi(std::to_string(CReserveExchange::SATOSHIDEN));
+
+    // first check if anything to buy
+    if (convertReserve)
+    {
+        cpp_dec_float_50 supplyout;
+        supplyout = (supply * (pow((reservein / reserve) + one, ratio) - one));
+
+        int64_t supplyOut;
+        if (!to_int64(supplyout, supplyOut))
+        {
+            assert(false);
+        }
+        totalFractionalOut += supplyOut;
+
+        cpp_dec_float_50 dec_price = cpp_dec_float_50(std::to_string(inputReserve)) / cpp_dec_float_50(std::to_string(totalFractionalOut));
+        cpp_dec_float_50 reserveFromFractional = cpp_dec_float_50(std::to_string(inputFractional)) * dec_price;
+        dec_price = dec_price * dec_satoshi;
+
+        if (!to_int64(reserveFromFractional, totalReserveOut))
+        {
+            assert(false);
+        }
+
+        if (!to_int64(dec_price, conversionPrice))
+        {
+            assert(false);
+        }
+    }
+    else
+    { 
+        cpp_dec_float_50 reserveout;
+        int64_t reserveOut;
+        reserveout = reserve * (one - pow(one - (fractionalin / supply), (one / ratio)));
+        if (!to_int64(reserveout, reserveOut))
+        {
+            assert(false);
+        }
+
+        totalReserveOut += reserveOut;
+
+        cpp_dec_float_50 dec_price = cpp_dec_float_50(std::to_string(totalReserveOut)) / cpp_dec_float_50(std::to_string(inputFractional));
+        cpp_dec_float_50 fractionalFromReserve = cpp_dec_float_50(std::to_string(inputReserve)) / dec_price;
+        dec_price = dec_price * dec_satoshi;
+
+        if (!to_int64(fractionalFromReserve, totalFractionalOut))
+        {
+            assert(false);
+        }
+
+        if (!to_int64(dec_price, conversionPrice))
+        {
+            assert(false);
+        }
+    }
+
+    newState.Supply += totalFractionalOut - inputFractional;
+    newState.Reserve += inputReserve - totalReserveOut;
+
+    return std::vector<CAmount>({conversionPrice});
+}
+
 void CReserveTransactionDescriptor::AddReserveExchange(const CReserveExchange &rex, int32_t outputIndex, int32_t nHeight)
 {
     CAmount fee = 0;
@@ -465,17 +582,20 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
         return;
     }
 
-    // reserve exchange transactions cannot run on the Verus chain and must have a supported chain on which to execute
+    // reserve exchange transactions cannot run until identity activates
     if (!chainActive.LastTip() ||
-        CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight) != CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3 ||
-        IsVerusActive() ||
-        !(ConnectedChains.ThisChain().ChainOptions() & ConnectedChains.ThisChain().OPTION_RESERVE))
+        CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight) < CConstVerusSolutionVector::activationHeight.ACTIVATE_IDENTITY)
     {
         return;
     }
 
+    bool isVerusActive = IsVerusActive();
+
     CCrossChainImport cci;
     CCrossChainExport ccx;
+
+    CNameReservation nameReservation;
+    CIdentity identity;
 
     flags |= IS_VALID;
 
@@ -487,6 +607,57 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
         {
             switch (p.evalCode)
             {
+                case EVAL_IDENTITY_RESERVATION:
+                {
+                    // one name reservation per transaction
+                    if (p.version < p.VERSION_V3 || !p.vData.size() || nameReservation.IsValid() || !(nameReservation = CNameReservation(p.vData[0])).IsValid())
+                    {
+                        flags &= ~IS_VALID;
+                        flags |= IS_REJECT;
+                        return;
+                    }
+                    if (identity.IsValid())
+                    {
+                        if (identity.name == nameReservation.name)
+                        {
+                            flags |= IS_IDENTITY_DEFINITION + IS_HIGH_FEE;
+                        }
+                        else
+                        {
+                            flags &= ~IS_VALID;
+                            flags |= IS_REJECT;
+                            return;
+                        }
+                    }
+                }
+                break;
+
+                case EVAL_IDENTITY_PRIMARY:
+                {
+                    // one identity per transaction
+                    if (p.version < p.VERSION_V3 || !p.vData.size() || identity.IsValid() || !(identity = CIdentity(p.vData[0])).IsValid())
+                    {
+                        flags &= ~IS_VALID;
+                        flags |= IS_REJECT;
+                        return;
+                    }
+                    flags |= IS_IDENTITY;
+                    if (nameReservation.IsValid())
+                    {
+                        if (identity.name == nameReservation.name)
+                        {
+                            flags |= IS_IDENTITY_DEFINITION + IS_HIGH_FEE;
+                        }
+                        else
+                        {
+                            flags &= ~IS_VALID;
+                            flags |= IS_REJECT;
+                            return;
+                        }
+                    }
+                }
+                break;
+
                 case EVAL_RESERVE_OUTPUT:
                 {
                     CReserveOutput ro;
@@ -518,7 +689,7 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
                 case EVAL_RESERVE_EXCHANGE:
                 {
                     CReserveExchange rex;
-                    if (!p.vData.size() || !(rex = CReserveExchange(p.vData[0])).IsValid())
+                    if (isVerusActive || !p.vData.size() || !(rex = CReserveExchange(p.vData[0])).IsValid())
                     {
                         flags &= ~IS_VALID;
                         flags |= IS_REJECT;
@@ -612,9 +783,10 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
                 case EVAL_CROSSCHAIN_EXPORT:
                 {
                     // cross chain export is incompatible with reserve exchange outputs
-                    if (!(nHeight == 1 && tx.IsCoinBase() && !IsVerusActive()) &&
-                        !(CPBaaSChainDefinition(tx).IsValid() && IsVerusActive()) &&
-                        (IsReserveExchange() || (flags & IS_IMPORT)))
+                    if (IsReserveExchange() ||
+                        (!(nHeight == 1 && tx.IsCoinBase() && !isVerusActive) &&
+                        !(CPBaaSChainDefinition(tx).IsValid() && isVerusActive) &&
+                        (flags & IS_IMPORT)))
                     {
                         flags &= ~IS_VALID;
                         flags |= IS_REJECT;

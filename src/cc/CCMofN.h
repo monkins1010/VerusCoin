@@ -21,7 +21,7 @@
 
 #define EVAL_MOFN 0xea
 
-bool MofNValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn);
+bool MofNValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn, bool fulfilled);
 
 // CCcustom
 UniValue MofNInfo();

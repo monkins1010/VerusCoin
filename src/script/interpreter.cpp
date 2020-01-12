@@ -17,10 +17,15 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
-
+#include "pbaas/pbaas.h"
+#include "pbaas/identity.h"
 
 
 using namespace std;
+
+CC *MakeCCcondMofN(const std::vector<CTxDestination> &dests, int M);
+CC *MakeCCcondMofN(const std::vector<CC*> &conditions, int M);
+CC *MakeCCcondOneSig(const CTxDestination &dest);
 
 typedef vector<unsigned char> valtype;
 
@@ -278,7 +283,9 @@ bool EvalScript(
             //
             if (!script.GetOp(pc, opcode, vchPushValue))
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-            if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
+            
+            //printf("Max script element size: %u, element size: %u\n", CScript::MAX_SCRIPT_ELEMENT_SIZE, (uint32_t)vchPushValue.size());
+            if (vchPushValue.size() > CScript::MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
 
             // Note how OP_RESERVED does not count towards the opcode limit.
@@ -1308,6 +1315,107 @@ uint256 SignatureHash(
     return ss.GetHash();
 }
 
+TransactionSignatureChecker::TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> *pIdMap) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL)
+{
+    if (pIdMap)
+    {
+        idMap = *pIdMap;
+        idMapSet = true;
+    }
+    else
+    {
+        idMapSet = false;
+    }
+}
+
+TransactionSignatureChecker::TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn, const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> *pIdMap) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn)
+{
+    if (pIdMap)
+    {
+        idMap = *pIdMap;
+        idMapSet = true;
+    }
+    else
+    {
+        idMapSet = false;
+    }
+}
+
+// uses keystore lookup
+std::map<uint160, pair<int, std::vector<std::vector<unsigned char>>>> BaseSignatureChecker::ExtractIDMap(const CScript &scriptPubKeyIn, const CKeyStore &keystore, uint32_t spendHeight)
+{
+    // create an ID map here, which late binds to the IDs on the blockchain as of the spend height, 
+    // and substitute the correct addresses when checking signatures
+    COptCCParams p;
+    std::map<uint160, pair<int, std::vector<std::vector<unsigned char>>>> idAddresses;
+    if (scriptPubKeyIn.IsPayToCryptoCondition(p) && p.IsValid() && p.n >= 1 && p.vKeys.size() >= p.n && p.version >= p.VERSION_V3 && p.vData.size())
+    {
+        // get mapping to any identities used that are available. if a signing identity is unavailable, a transaction may still be able to be spent
+        COptCCParams master = COptCCParams(p.vData.back());
+        bool ccValid = master.IsValid();
+
+        CIdentity selfIdentity(scriptPubKeyIn);
+        uint160 selfID = selfIdentity.GetID();
+
+        // if we are sign-only, "p" will have no data object of its own, so we do not have to subtract 1
+        int loopMax = p.evalCode ? p.vData.size() - 1 : p.vData.size();
+
+        for (int i = 0; ccValid && i < loopMax; i++)
+        {
+            COptCCParams oneP(i ? p.vData[i] : p);
+            ccValid = oneP.IsValid();
+
+            if (ccValid)
+            {
+                for (auto dest : oneP.vKeys)
+                {
+                    uint160 destId = GetDestinationID(dest);
+                    if (dest.which() == COptCCParams::ADDRTYPE_ID)
+                    {
+                        // lookup identity
+                        CIdentity id;
+                        std::pair<CIdentityMapKey, CIdentityMapValue> idMapEntry;
+                        if (selfIdentity.IsValidUnrevoked() && destId == selfID)
+                        {
+                            id = selfIdentity;
+                        }
+                        else if (keystore.GetIdentity(destId, idMapEntry, spendHeight))
+                        {
+                            id = idMapEntry.second;
+                        }
+                        if (id.IsValidUnrevoked())
+                        {
+                            std::vector<std::vector<unsigned char>> idAddrBytes;
+                            for (auto &oneAddr : id.primaryAddresses)
+                            {
+                                idAddrBytes.push_back(GetDestinationBytes(oneAddr));
+                            }
+                            idAddresses[destId] = make_pair(id.minSigs, idAddrBytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return idAddresses;
+}
+
+TransactionSignatureChecker::TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CScript *pScriptPubKeyIn, const CKeyStore *pKeyStore, uint32_t spendHeight) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL)
+{
+    if (pScriptPubKeyIn && pKeyStore)
+    {
+        SetIDMap(ExtractIDMap(*pScriptPubKeyIn, *pKeyStore, spendHeight));
+    }
+}
+
+TransactionSignatureChecker::TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn, const CScript *pScriptPubKeyIn, const CKeyStore *pKeyStore, uint32_t spendHeight) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL)
+{
+    if (pScriptPubKeyIn && pKeyStore)
+    {
+        SetIDMap(ExtractIDMap(*pScriptPubKeyIn, *pKeyStore, spendHeight));
+    }
+}
+
 bool TransactionSignatureChecker::VerifySignature(
     const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
 {
@@ -1351,47 +1459,338 @@ int TransactionSignatureChecker::CheckCryptoCondition(
         const CScript& scriptCode,
         uint32_t consensusBranchId) const
 {
-    // Hash type is one byte tacked on to the end of the fulfillment
-    if (ffillBin.empty())
-        return false;
-
-    CC *cond;
-    int error = cc_readFulfillmentBinaryExt((unsigned char*)ffillBin.data(), ffillBin.size()-1, &cond);
-    if (error || !cond) return -1;
-
     COptCCParams p;
+
     if (!scriptCode.IsPayToCryptoCondition(p))
     {
         return false;
     }
 
-    if (!IsSupportedCryptoCondition(cond, p.IsValid() ? p.evalCode : 0)) return 0;
-    if (!IsSignedCryptoCondition(cond)) return 0;
+    std::vector<unsigned char> condBinary;
 
-    uint256 sighash;
-    int nHashType = ffillBin.back();
-    try {
-        sighash = SignatureHash(CCPubKey(cond), *txTo, nIn, nHashType, amount, consensusBranchId, this->txdata);
-    } catch (logic_error ex) {
+    // Hash type is one byte tacked on to the end of the fulfillment
+    if (ffillBin.empty())
+        return false;
+
+    int expectedEvals = 1;
+    CC *outputCC = nullptr;
+    int nHashType;
+
+    if (p.IsValid() && p.version >= p.VERSION_V3 && p.vData.size())
+    {
+        // create the starting condition from the data we have
+        COptCCParams master = COptCCParams(p.vData.back());
+        bool ccValid = master.IsValid();
+        std::vector<CC*> ccs;
+
+        // if we do not have access to the blockchain and cannot convert IDs, we cannot fully validate transactions
+        // they are fully validated by miners, stakers, and native wallets.
+        bool failToTrue = false;
+
+        CIdentity identity;
+        bool identitySpend = false;
+        uint160 idID;
+        if (p.evalCode == EVAL_IDENTITY_PRIMARY)
+        {
+            identity = CIdentity(p.vData[0]);
+            identitySpend = identity.IsValid();
+            idID = identity.GetID();
+        }
+
+        // if we are sign-only, "p" will have no data object of its own, so we do not have to subtract 1
+        int loopMax = p.evalCode ? p.vData.size() - 1 : p.vData.size();
+
+        for (int i = 0; ccValid && i < loopMax; i++)
+        {
+            COptCCParams oneP(i ? p.vData[i] : p);
+            ccValid = oneP.IsValid();
+            std::vector<CC*> vCC;
+            if (ccValid)
+            {
+                for (auto &dest : oneP.vKeys)
+                {
+                    uint160 destId = GetDestinationID(dest);
+                    if (dest.which() == COptCCParams::ADDRTYPE_ID)
+                    {
+                        bool identitySelfSpend = destId == idID;
+                        if (!IsIDMapSet() && !identitySelfSpend)
+                        {
+                            // we cannot check the fullfillment form
+                            failToTrue = !CanValidateIDs();
+                            ccValid = false;
+                            vCC.push_back(MakeCCcondOneSig(dest));
+                        }
+                        else
+                        {
+                            // lookup identity, we must have all valid identity scripts in our keystore with a positive blockheight.
+                            // those that are not found may not be realized yet and so are left as their unspendable ID
+                            // in the spend condition, as are revoked identities
+                            std::vector<CTxDestination> addrs;
+                            auto dit = idMap.find(destId);
+                            int minSigs = 1;
+                            if (identitySelfSpend)
+                            {
+                                if (identity.IsRevoked())
+                                {
+                                    addrs.push_back(CKeyID(destId));
+                                }
+                                else
+                                {
+                                    addrs = identity.primaryAddresses;  // TODO:ID make this check eval code and select alternate ID based on destination in CC output
+                                    minSigs = identity.minSigs;
+                                }
+                            }
+                            else if (dit != idMap.end() && dit->second.first)
+                            {
+                                minSigs = dit->second.first;
+                                for (auto destVch : dit->second.second)
+                                {
+                                    if (destVch.size() == 20)
+                                    {
+                                        addrs.push_back(CKeyID(uint160(destVch)));
+                                    }
+                                    else if (destVch.size() == 33)
+                                    {
+                                        addrs.push_back(CPubKey(destVch));
+                                    }
+                                    else
+                                    {
+                                        addrs.push_back(CKeyID(destId));
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                addrs.push_back(CKeyID(destId));
+                            }
+                            if (addrs.size() == 1)
+                            {
+                                vCC.push_back(MakeCCcondOneSig(addrs[0]));
+                            }
+                            else
+                            {
+                                vCC.push_back(MakeCCcondMofN(addrs, minSigs));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        vCC.push_back(MakeCCcondOneSig(dest));
+                    }
+                }
+
+                int thresh = oneP.m ? oneP.m : 1;
+                if (oneP.n && thresh > oneP.n)
+                {
+                    thresh = oneP.n;
+                }
+
+                if (oneP.evalCode != EVAL_NONE)
+                {
+                    ccs.push_back(MakeCCcondMofN(oneP.evalCode, vCC, thresh));
+                }
+                else
+                {
+                    if (vCC.size() == 1)
+                    {
+                        ccs.push_back(vCC[0]);
+                    }
+                    else
+                    {
+                        ccs.push_back(MakeCCcondMofN(vCC, thresh));
+                    }
+                }
+            }
+        }
+
+        if (ccs.size() == 1)
+        {
+            if (master.evalCode)
+            {
+                outputCC = MakeCCcondMofN(master.evalCode, ccs, 1);
+            }
+            else
+            {
+                outputCC = ccs[0];
+            }
+        }
+        else if (ccs.size() > 1)
+        {
+            if (master.evalCode)
+            {
+                outputCC = MakeCCcondMofN(master.evalCode, ccs, master.m);
+            }
+            else
+            {
+                outputCC = MakeCCcondMofN(ccs, master.m);
+            }
+        }
+
+        if (!ccValid || !outputCC)
+        {
+            if (outputCC)
+            {
+                cc_free(outputCC);
+            }
+            else if (ccs.size())
+            {
+                for (auto pCond : ccs)
+                {
+                    cc_free(pCond);
+                }            
+            }
+
+            if (failToTrue)
+            {
+                // this should never get here when running on a server with access to the blockchain
+                if (CanValidateIDs())
+                {
+                    return false;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+        }
+        else
+        {
+            condBinary = CCPubKeyVec(outputCC);
+
+            CSmartTransactionSignatures signatures(std::vector<unsigned char>((unsigned char*)ffillBin.data(), (unsigned char*)ffillBin.data() + ffillBin.size()));
+            bool success = true;
+            if (!signatures.IsValid())
+            {
+                success = false;
+            }
+            else
+            {
+                // apply signatures to the condition to create the fulfillment
+                nHashType = signatures.sigHashType;
+                for (auto &sig : signatures.signatures)
+                {
+
+                    if (sig.second.sigType != sig.second.SIGTYPE_SECP256K1 || !sig.second.signature.size() || !cc_ApplySecp256k1Signature(outputCC, sig.second.pubKeyData.data(), sig.first.begin(), sig.second.signature.data()))
+                    {
+                        success = false;
+                    }
+                }
+            }
+            if (!success || !condBinary.size())
+            {
+                /*
+                char *jsonCondStr = cc_conditionToJSONString(outputCC);
+                if (jsonCondStr)
+                {
+                    printf("Signed condition: %s\n", jsonCondStr);
+                    cJSON_free(jsonCondStr);
+                }
+                */
+
+                cc_free(outputCC);
+                condBinary.clear();
+            }
+        }
+    }
+    else
+    {
+        condBinary = condBin;
+    }
+
+    if (!condBinary.size())
+    {
+        return false;
+    }
+
+    int out = false;
+
+    CC *cond = NULL;
+    int error;
+
+    CScript signScript;
+    if (p.IsValid() && p.version >= p.VERSION_V3)
+    {
+        cond = outputCC;
+        signScript = scriptCode;
+        error = false;
+    }
+    else
+    {
+        signScript = CScript() << condBinary << OP_CHECKCRYPTOCONDITION;
+        error = cc_readFulfillmentBinaryExt((unsigned char*)ffillBin.data(), ffillBin.size()-1, &cond);
+        nHashType = ffillBin.back();
+    }
+    
+    if (error || !cond)
+    {
+        if (cond)
+        {
+            cc_free(cond);
+        }
+        return -1;
+    }
+
+    /*
+    char *jsonCondStr = cc_conditionToJSONString(cond);
+    if (jsonCondStr)
+    {
+        printf("Fulfillment condition: %s\n", jsonCondStr);
+        cJSON_free(jsonCondStr);
+        uint8_t buf[2000];
+        int ccLen = cc_conditionBinary(cond, buf, 2000);
+        if (ccLen)
+        {
+            CC *transformedCC = cc_readConditionBinary(buf, ccLen);
+            if (transformedCC)
+            {
+                jsonCondStr = cc_conditionToJSONString(transformedCC);
+                if (jsonCondStr)
+                {
+                    printf("Converted fulfillment condition: %s\n", jsonCondStr);
+                    cJSON_free(jsonCondStr);
+                }
+                cc_free(transformedCC);
+            }
+        }
+    }
+    if (condBinary.size())
+    {
+        CC *transformedCC = cc_readConditionBinary(condBinary.data(), condBinary.size());
+        if (transformedCC)
+        {
+            jsonCondStr = cc_conditionToJSONString(transformedCC);
+            if (jsonCondStr)
+            {
+                printf("Binary condition reconstructed: %s\n", jsonCondStr);
+                cJSON_free(jsonCondStr);
+            }
+            cc_free(transformedCC);
+        }
+    }
+    */
+
+    if (!IsSupportedCryptoCondition(cond, p.IsValid() ? p.evalCode : 0) || !IsSignedCryptoCondition(cond))
+    {
+        cc_free(cond);
         return 0;
     }
-    /*int32_t z; uint8_t *ptr;
-    ptr = (uint8_t *)scriptCode.data();
-    for (z=0; z<scriptCode.size(); z++)
-        fprintf(stderr,"%02x",ptr[z]);
-    fprintf(stderr," <- CScript\n");
-    for (z=0; z<32; z++)
-        fprintf(stderr,"%02x",((uint8_t *)&sighash)[z]);
-    fprintf(stderr," sighash nIn.%d nHashType.%d %.8f id.%d\n",(int32_t)nIn,(int32_t)nHashType,(double)amount/COIN,(int32_t)consensusBranchId);
-     */
-    VerifyEval eval = [] (CC *cond, void *checker) {
+
+    uint256 sighash;
+    try {
+        sighash = SignatureHash(signScript, *txTo, nIn, nHashType, amount, consensusBranchId, this->txdata);
+    } catch (logic_error ex) {
+        cc_free(cond);
+        return 0;
+    }
+
+    VerifyEval eval = [] (CC *cond, void *checker, int fulfilled) {
         //fprintf(stderr,"checker.%p\n",(TransactionSignatureChecker*)checker);
-        return ((TransactionSignatureChecker*)checker)->CheckEvalCondition(cond);
+        return ((TransactionSignatureChecker*)checker)->CheckEvalCondition(cond, fulfilled);
     };
 
     //fprintf(stderr,"non-checker path\n");
-    int out = cc_verify(cond, (const unsigned char*)&sighash, 32, 0,
-                        condBin.data(), condBin.size(), eval, (void*)this, true);
+    out = cc_verify(cond, (const unsigned char*)&sighash, 32, 0,
+                    condBinary.data(), condBinary.size(), eval, (void*)this, true);
 
     //fprintf(stderr,"out.%d from cc_verify\n",(int32_t)out);
     cc_free(cond);
@@ -1399,7 +1798,7 @@ int TransactionSignatureChecker::CheckCryptoCondition(
 }
 
 
-int TransactionSignatureChecker::CheckEvalCondition(const CC *cond) const
+int TransactionSignatureChecker::CheckEvalCondition(const CC *cond, int filfilled) const
 {
     //fprintf(stderr, "Cannot check crypto-condition Eval outside of server, returning true in pre-checks\n");
     return true;
@@ -1465,13 +1864,13 @@ bool EvalCryptoConditionSig(
     if (!scriptSig.GetOp(pc, opcode, vchPushValue))
         return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
 
-    if (opcode == 0 || opcode > OP_PUSHDATA4)
+    if (opcode == 0 || opcode > OP_16)
         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
     if (pc != scriptSig.end())
         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-    if (vchPushValue.size() > MAX_SCRIPT_CRYPTOCONDITION_FULFILLMENT_SIZE)
+    if (vchPushValue.size() > CScript::MAX_SCRIPT_ELEMENT_SIZE)
         return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
 
     stack.push_back(vchPushValue);

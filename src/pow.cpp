@@ -139,7 +139,7 @@ unsigned int lwmaCalculateNextWorkRequired(const CBlockIndex* pindexLast, const 
 
     // if changing from VerusHash V1 to V2, shift the last blocks by the same shift as the limit
     int targetShift = 0;
-    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexLast->GetHeight() + 1))
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexLast->GetHeight() + 1) > CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV1)
     {
         bnLimit <<= VERUSHASH2_SHIFT;
         targetShift = VERUSHASH2_SHIFT;
@@ -160,7 +160,7 @@ unsigned int lwmaCalculateNextWorkRequired(const CBlockIndex* pindexLast, const 
         // The factor is a part of the final equation. However we divide 
         // here to avoid potential overflow.
         bnTmp.SetCompact(pindexNext->nBits);
-        if (targetShift && !CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexNext->GetHeight()))
+        if (targetShift && !(CConstVerusSolutionVector::activationHeight.ActiveVersion(pindexNext->GetHeight()) > CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV1))
         {
             bnTmp <<= targetShift;
         }
@@ -220,7 +220,7 @@ uint32_t lwmaGetNextPOSRequired(const CBlockIndex* pindexLast, const Consensus::
     int32_t nHeight = pindexLast->GetHeight();
     int32_t maxConsecutivePos = VERUS_CONSECUTIVE_POS_THRESHOLD;
 
-    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight + 1) >= CActivationHeight::SOLUTION_VERUSV3)
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight + 1) >= CActivationHeight::SOLUTION_VERUSV4)
     {
         maxConsecutivePos = VERUS_V2_CONSECUTIVE_POS_THRESHOLD;
     }

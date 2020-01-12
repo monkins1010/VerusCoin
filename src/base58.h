@@ -14,7 +14,6 @@
 #ifndef BITCOIN_BASE58_H
 #define BITCOIN_BASE58_H
 
-#include "chainparams.h"
 #include "key.h"
 #include "pubkey.h"
 #include "script/script.h"
@@ -118,6 +117,7 @@ public:
     bool Set(const CKeyID &id);
     bool Set(const CPubKey &key);
     bool Set(const CScriptID &id);
+    bool Set(const CIdentityID& id);
     bool Set(const CTxDestination &dest);
     bool IsValid() const;
     bool IsValid(const CChainParams &params) const;
@@ -131,9 +131,11 @@ public:
 
     CTxDestination Get() const;
     bool GetKeyID(CKeyID &keyID) const;
+    bool GetIdentityID(CIdentityID &idID) const;
     bool GetKeyID_NoCheck(CKeyID& keyID) const;
     bool GetIndexKey(uint160& hashBytes, int& type) const;
     bool IsScript() const;
+    bool IsIdentity() const;
 };
 
 /**

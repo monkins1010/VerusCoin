@@ -84,7 +84,7 @@ class CVerusHashV2
 
         verusclhasher vclh;
 
-        CVerusHashV2() : vclh() {
+        CVerusHashV2(int solutionVersion=SOLUTION_VERUSHHASH_V2) : vclh(VERUSKEYSIZE, solutionVersion) {
             // we must have allocated key space, or can't run
             if (!verusclhasher_key.get())
             {
@@ -218,22 +218,6 @@ class CVerusHashV2
 
             // get the final hash with a mutated dynamic key for each hash result
             (*haraka512KeyedFunction)(hash, curBuf, key + IntermediateTo128Offset(intermediate));
-
-            /*
-            // TEST BEGIN
-            // test against the portable version
-            uint256 testHash1 = *(uint256 *)hash, testHash2;
-            FillExtra((u128 *)curBuf);
-            u128 *hashKey = ((u128 *)vclh.gethashkey());
-            uint64_t temp = verusclhash_port(key, curBuf, vclh.keyMask);
-            FillExtra(&temp);
-            haraka512_keyed((unsigned char *)&testHash2, curBuf, hashKey + IntermediateTo128Offset(intermediate));
-            if (testHash1 != testHash2)
-            {
-                printf("Portable version failed! intermediate1: %lx, intermediate2: %lx\n", intermediate, temp);
-            }
-            // END TEST
-            */
         }
 
         inline unsigned char *CurBuffer()

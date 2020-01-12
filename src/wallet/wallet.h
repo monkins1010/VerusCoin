@@ -1035,7 +1035,7 @@ public:
     //! check whether we are allowed to upgrade (or already support) to the named feature
     bool CanSupportFeature(enum WalletFeature wf) { AssertLockHeld(cs_wallet); return nWalletMaxVersion >= wf; }
 
-    void AvailableCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl = NULL, bool fIncludeZeroValue=false, bool fIncludeCoinBase=true) const;
+    void AvailableCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl = NULL, bool fIncludeZeroValue=false, bool fIncludeCoinBase=true, bool fIncludeProtectedCoinbase=true) const;
     void AvailableReserveCoins(std::vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl, bool fIncludeCoinBase) const;
     bool SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, CAmount& nValueRet) const;
     bool SelectReserveCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, CAmount& nValueRet) const;
@@ -1080,8 +1080,15 @@ public:
     bool AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     //! Adds an encrypted key to the store, without saving it to disk (used by LoadWallet)
     bool LoadCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
+
     bool AddCScript(const CScript& redeemScript);
     bool LoadCScript(const CScript& redeemScript);
+
+    bool AddIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    bool UpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    bool AddUpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    bool RemoveIdentity(const CIdentityMapKey &mapKey, const uint256 &txid=uint256());
+    bool LoadIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
 
     //! Adds a destination data tuple to the store, and saves it to disk
     bool AddDestData(const CTxDestination &dest, const std::string &key, const std::string &value);
@@ -1183,6 +1190,8 @@ public:
     void EraseFromWallet(const uint256 &hash);
     void SyncTransaction(const CTransaction& tx, const CBlock* pblock);
     void RescanWallet();
+    std::pair<bool, bool> CheckAuthority(const CIdentity &identity);
+    bool MarkIdentityDirty(const CIdentityID &idID);
     bool AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pblock, bool fUpdate);
     void WitnessNoteCommitment(
          std::vector<uint256> commitments,
@@ -1516,6 +1525,10 @@ public:
         return CPubKey();
     }
 
+    CPubKey operator()(const CIdentityID &sid) const {
+        return CPubKey();
+    }
+
     CPubKey operator()(const CNoDestination &no) const {
         return CPubKey();
     }
@@ -1536,6 +1549,10 @@ public:
 
     std::string operator()(const CScriptID &scriptID) const {
         return "script hash: " + scriptID.ToString();
+    }
+
+    std::string operator()(const CIdentityID &idID) const {
+        return "identity hash: " + idID.ToString();
     }
 };
 

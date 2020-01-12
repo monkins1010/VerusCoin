@@ -55,7 +55,7 @@ TEST(founders_reward_test, create_testnet_2of3multisig) {
         pWallet->SetAddressBook(newKey.GetID(), "", "receive");
 
         CScript result = GetScriptForMultisig(2, pubkeys);
-        ASSERT_FALSE(result.size() > MAX_SCRIPT_ELEMENT_SIZE);
+        ASSERT_FALSE(result.size() > CScript::MAX_SCRIPT_ELEMENT_SIZE);
         CScriptID innerID(result);
         pWallet->AddCScript(result);
         pWallet->SetAddressBook(innerID, "", "receive");

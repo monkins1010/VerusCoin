@@ -18,8 +18,8 @@
 #include <univalue.h>
 #include <sstream>
 #include "streams.h"
-#include "pubkey.h"
-#include "base58.h"
+#include "boost/algorithm/string.hpp"
+#include "key_io.h"
 
 static const int DEFAULT_RPC_TIMEOUT=900;
 static const uint32_t PBAAS_VERSION = 1;
@@ -48,12 +48,7 @@ public:
 
     static CCrossChainRPCData LoadFromConfig(std::string fPath="");
 
-    inline static uint160 GetChainID(std::string name)
-    {
-        const char *chainName = name.c_str();
-        uint256 chainHash = Hash(chainName, chainName + strlen(chainName));
-        return Hash160(chainHash.begin(), chainHash.end());
-    }
+    static uint160 GetChainID(std::string name);
 
     static uint160 GetConditionID(uint160 cid, int32_t condition);
     static uint160 GetConditionID(std::string name, int32_t condition);
@@ -94,13 +89,14 @@ void FromVector(const std::vector<unsigned char> &vch, SERIALIZABLE &obj)
 }
 
 template <typename SERIALIZABLE>
-uint256 GetHash(SERIALIZABLE obj)
+uint256 GetHash(const SERIALIZABLE &obj)
 {
     CHashWriter hw(SER_GETHASH, PROTOCOL_VERSION);
     hw << obj;
     return hw.GetHash();
 }
 
+bool uni_get_bool(UniValue uv, bool def=false);
 int32_t uni_get_int(UniValue uv, int32_t def=0);
 int64_t uni_get_int64(UniValue uv, int64_t def =0);
 std::string uni_get_str(UniValue uv, std::string def="");
@@ -118,8 +114,7 @@ public:
     CNodeData(std::string netAddr, std::string paymentAddr) :
         networkAddress(netAddr)
     {
-        CBitcoinAddress ba(paymentAddr);
-        ba.GetKeyID(paymentAddress);
+        paymentAddress = GetDestinationID(CTxDestination(paymentAddr));
     }
     
     ADD_SERIALIZE_METHODS;
@@ -141,11 +136,16 @@ public:
     static const int64_t MIN_BILLING_PERIOD = 480;  // 8 hour minimum billing period for notarization, typically expect days/weeks/months
     static const int64_t DEFAULT_OUTPUT_VALUE = 100000;  // 0.001 VRSC default output value
 
-    static const int32_t OPTION_RESERVE = 1; // allows reserve conversion using base calculations when set
+    static const uint32_t OPTION_RESERVE = 1;       // allows reserve conversion using base calculations when set
+    static const uint32_t OPTION_ID_ISSUANCE = 2;   // clear is permissionless, if set, IDs may only be created by controlling ID
+    static const uint32_t OPTION_ID_STAKING = 4;    // all IDs on chain stake equally, rather than value-based staking
+    static const uint32_t OPTION_ID_REFERRALS = 8;  // if set, this chain supports referrals
 
     uint32_t nVersion;                      // version of this chain definition data structure to allow for extensions (not daemon version)
-    std::string name;                       // chain name, maximum 64 characters
+    std::string name;                       // chain name - specifies the ID
+
     CKeyID address;                         // non-purchased/converted premine and fee recipient address
+
     int64_t premine;                        // initial supply that is distributed to the premine output address, but not purchased
     int64_t initialcontribution;            // optional initial contribution by this transaction. this serves to ensure the option to participate by whoever defines the chain
     int64_t minpreconvert;                  // zero for now, later can be used for Kickstarter-like launch and return all non-network fees upon failure to meet minimum
@@ -155,11 +155,15 @@ public:
     int64_t launchFee;                      // fee deducted from reserve purchase before conversion. always 100000000 (100%) for non-reserve currencies
     int32_t startBlock;                     // parent chain block # that must kickoff the notarization of block 0, cannot be before this block
     int32_t endBlock;                       // block after which this is considered end-of-lifed
+
+    // TODO:PBAAS remove this member, which is no longer used - left for compatibility with testnet while completing IDs
     int32_t eras;                           // number of eras, each vector below should have an entry for each
+
     std::vector<int64_t> rewards;           // initial reward in each ERA in native coin
     std::vector<int64_t> rewardsDecay;      // decay of rewards during the era - only applies to non-converted values
     std::vector<int32_t> halving;           // number of blocks between halvings
     std::vector<int32_t> eraEnd;            // block number that ends each ERA
+
     std::vector<int32_t> eraOptions;        // flags to determine fungibility and conversion for each ERA
 
     int32_t billingPeriod;                  // number of blocks in one billing period
@@ -210,8 +214,7 @@ public:
             Name.resize(KOMODO_ASSETCHAIN_MAXLEN - 1);
         }
         name = Name;
-        CBitcoinAddress ba(Address);
-        ba.GetKeyID(address);
+        address = GetDestinationID(CTxDestination(Address));
     }
 
     ADD_SERIALIZE_METHODS;
@@ -257,7 +260,7 @@ public:
 
     bool IsValid() const
     {
-        return (nVersion != PBAAS_VERSION_INVALID) && (name.size() && eras > 0) && (eras <= ASSETCHAINS_MAX_ERAS);
+        return (nVersion != PBAAS_VERSION_INVALID) && name.size() > 0 && name.size() <= (KOMODO_ASSETCHAIN_MAXLEN - 1) && rewards.size() > 0 && (rewards.size() <= ASSETCHAINS_MAX_ERAS);
     }
 
     int32_t ChainOptions() const
@@ -272,6 +275,21 @@ public:
     bool IsReserve() const
     {
         return ChainOptions() & OPTION_RESERVE;
+    }
+
+    bool IDRequiresPermission() const
+    {
+        return ChainOptions() & OPTION_ID_ISSUANCE;
+    }
+
+    bool IDStaking() const
+    {
+        return ChainOptions() & OPTION_ID_STAKING;
+    }
+
+    bool IDReferrals() const
+    {
+        return ChainOptions() & OPTION_ID_REFERRALS;
     }
 };
 

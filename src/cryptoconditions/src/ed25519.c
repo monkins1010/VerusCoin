@@ -35,7 +35,13 @@ static unsigned char *ed25519Fingerprint(const CC *cond) {
 
 int ed25519Verify(CC *cond, CCVisitor visitor) {
     if (cond->type->typeId != CC_Ed25519Type.typeId) return 1;
-    // TODO: test failure mode: empty sig / null pointer
+    // an empty sig needs to return 1 to allow it to continue,
+    // isfulfilled + verification yields proper validation
+    if (!cond->signature)
+    {
+        return 1;
+    }
+
     return ed25519_verify(cond->signature, visitor.msg, visitor.msgLength, cond->publicKey);
 }
 
@@ -163,6 +169,42 @@ static Fulfillment_t *ed25519ToFulfillment(const CC *cond) {
 }
 
 
+static CC *ed25519FromPartialFulfillment(const Fulfillment_t *ffill) {
+    CC *cond = cc_new(CC_Ed25519);
+    cond->publicKey = calloc(1,32);
+    memcpy(cond->publicKey, ffill->choice.ed25519Sha256.publicKey.buf, 32);
+    if (ffill->choice.ed25519Sha256.signature.buf)
+    {
+        cond->signature = calloc(1,64);
+        memcpy(cond->signature, ffill->choice.ed25519Sha256.signature.buf, 64);
+    }
+    else
+    {
+        cond->signature = NULL;
+    }
+    return cond;
+}
+
+
+static Fulfillment_t *ed25519ToPartialFulfillment(const CC *cond) {
+    Fulfillment_t *ffill = calloc(1, sizeof(Fulfillment_t));
+    ffill->present = Fulfillment_PR_ed25519Sha256;
+    Ed25519Sha512Fulfillment_t *ed2 = &ffill->choice.ed25519Sha256;
+    OCTET_STRING_fromBuf(&ed2->publicKey, cond->publicKey, 32);
+    if (cond->signature)
+    {
+        OCTET_STRING_fromBuf(&ed2->signature, cond->signature, 64);
+    }
+    else
+    {
+        ed2->signature.buf = NULL;
+        ed2->signature.size = 0;
+    }
+    
+    return ffill;
+}
+
+
 int ed25519IsFulfilled(const CC *cond) {
     return cond->signature > 0;
 }
@@ -181,4 +223,4 @@ static uint32_t ed25519Subtypes(const CC *cond) {
 }
 
 
-struct CCType CC_Ed25519Type = { 4, "ed25519-sha-256", Condition_PR_ed25519Sha256, 0, &ed25519Fingerprint, &ed25519Cost, &ed25519Subtypes, &ed25519FromJSON, &ed25519ToJSON, &ed25519FromFulfillment, &ed25519ToFulfillment, &ed25519IsFulfilled, &ed25519Free };
+struct CCType CC_Ed25519Type = { 4, "ed25519-sha-256", Condition_PR_ed25519Sha256, 0, &ed25519Fingerprint, &ed25519Cost, &ed25519Subtypes, &ed25519FromJSON, &ed25519ToJSON, &ed25519FromFulfillment, &ed25519ToFulfillment, &ed25519FromPartialFulfillment, &ed25519ToPartialFulfillment, &ed25519IsFulfilled, &ed25519Free };

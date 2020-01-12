@@ -126,7 +126,7 @@ bool CCheatList::IsUTXOInList(COutPoint _utxo, uint32_t height)
     return false;
 }
 
-bool CCheatList::Add(const CTxHolder &txh)
+void CCheatList::Add(const CTxHolder &txh)
 {
     if (Params().GetConsensus().NetworkUpgradeActive(txh.height, Consensus::UPGRADE_SAPLING))
     {

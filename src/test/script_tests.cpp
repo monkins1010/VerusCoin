@@ -937,7 +937,7 @@ BOOST_DATA_TEST_CASE(script_standard_push, boost::unit_test::data::xrange(static
         BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
     }
 
-    for (unsigned int i=0; i<=MAX_SCRIPT_ELEMENT_SIZE; i++) {
+    for (unsigned int i=0; i<=CScript::MAX_SCRIPT_ELEMENT_SIZE; i++) {
         std::vector<unsigned char> data(i, '\111');
         CScript script;
         script << data;

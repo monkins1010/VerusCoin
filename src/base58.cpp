@@ -7,6 +7,8 @@
 #include <hash.h>
 #include <uint256.h>
 
+#include "pbaas/identity.h"
+
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -17,6 +19,7 @@
 
 /** All alphanumeric characters except for "0", "I", "O", and "l" */
 static const char* pszBase58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+extern uint160 VERUS_CHAINID;
 
 bool DecodeBase58(const char* psz, std::vector<unsigned char>& vch)
 {
@@ -215,6 +218,7 @@ public:
     bool operator()(const CKeyID& id) const { return addr->Set(id); }
     bool operator()(const CPubKey& key) const { return addr->Set(key); }
     bool operator()(const CScriptID& id) const { return addr->Set(id); }
+    bool operator()(const CIdentityID& id) const { return addr->Set(id); }
     bool operator()(const CNoDestination& no) const { return false; }
 };
 
@@ -239,6 +243,12 @@ bool CBitcoinAddress::Set(const CScriptID& id)
     return true;
 }
 
+bool CBitcoinAddress::Set(const CIdentityID& id)
+{
+    SetData(Params().Base58Prefix(CChainParams::IDENTITY_ADDRESS), &id, 20);
+    return true;
+}
+
 bool CBitcoinAddress::Set(const CTxDestination& dest)
 {
     return boost::apply_visitor(CBitcoinAddressVisitor(this), dest);
@@ -253,13 +263,30 @@ bool CBitcoinAddress::IsValid(const CChainParams& params) const
 {
     bool fCorrectSize = vchData.size() == 20;
     bool fKnownVersion = vchVersion == params.Base58Prefix(CChainParams::PUBKEY_ADDRESS) ||
-                         vchVersion == params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+                         vchVersion == params.Base58Prefix(CChainParams::SCRIPT_ADDRESS) ||
+                         vchVersion == params.Base58Prefix(CChainParams::IDENTITY_ADDRESS);
     return fCorrectSize && fKnownVersion;
 }
 
 bool CBitcoinAddress::SetString(const char* pszAddress)
 {
-    return CBase58Data::SetString(pszAddress, 1);//2);
+
+    if (std::count(pszAddress, pszAddress + strlen(pszAddress), '@') == 1)
+    {
+        if (std::count(pszAddress, pszAddress + strlen(pszAddress), '.') == 0)
+        {
+            return Set(CIdentity::GetID(std::string(pszAddress), VERUS_CHAINID));
+        }
+        else
+        {
+            uint160 parent;
+            return Set(CIdentity::GetID(std::string(pszAddress), parent));
+        }
+    }
+    else
+    {
+        return CBase58Data::SetString(pszAddress, 1);//2);
+    }
 }
 
 bool CBitcoinAddress::SetString(const std::string& strAddress)
@@ -277,6 +304,8 @@ CTxDestination CBitcoinAddress::Get() const
         return CKeyID(id);
     else if (vchVersion == Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS))
         return CScriptID(id);
+    else if (vchVersion == Params().Base58Prefix(CChainParams::IDENTITY_ADDRESS))
+        return CIdentityID(id);
     else
         return CNoDestination();
 }
@@ -287,11 +316,15 @@ bool CBitcoinAddress::GetIndexKey(uint160& hashBytes, int& type) const
         return false;
     } else if (vchVersion == Params().Base58Prefix(CChainParams::PUBKEY_ADDRESS)) {
         memcpy(&hashBytes, &vchData[0], 20);
-        type = 1;
+        type = CScript::P2PKH;
+        return true;
+    } else if (vchVersion == Params().Base58Prefix(CChainParams::IDENTITY_ADDRESS)) {
+        memcpy(&hashBytes, &vchData[0], 20);
+        type = CScript::P2ID;
         return true;
     } else if (vchVersion == Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS)) {
         memcpy(&hashBytes, &vchData[0], 20);
-        type = 2;
+        type = CScript::P2SH;
         return true;
     }
 
@@ -316,9 +349,24 @@ bool CBitcoinAddress::GetKeyID_NoCheck(CKeyID& keyID) const
     return true;
 }
 
+bool CBitcoinAddress::GetIdentityID(CIdentityID& idID) const
+{
+    if (!IsValid() || vchVersion != Params().Base58Prefix(CChainParams::IDENTITY_ADDRESS))
+        return false;
+    uint160 id;
+    memcpy(&id, &vchData[0], 20);
+    idID = CIdentityID(id);
+    return true;
+}
+
 bool CBitcoinAddress::IsScript() const
 {
     return IsValid() && vchVersion == Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+}
+
+bool CBitcoinAddress::IsIdentity() const
+{
+    return IsValid() && vchVersion == Params().Base58Prefix(CChainParams::IDENTITY_ADDRESS);
 }
 
 void CBitcoinSecret::SetKey(const CKey& vchSecret)

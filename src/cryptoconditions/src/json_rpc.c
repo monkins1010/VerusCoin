@@ -27,8 +27,8 @@ static cJSON *jsonCondition(CC *cond) {
     cJSON_AddItemToObject(root, "uri", cJSON_CreateString(uri));
     free(uri);
 
-    unsigned char buf[1000];
-    size_t conditionBinLength = cc_conditionBinary(cond, buf);
+    unsigned char buf[MAX_BINARY_CC_SIZE];
+    size_t conditionBinLength = cc_conditionBinary(cond, buf, MAX_BINARY_CC_SIZE);
     jsonAddHex(root, "bin", buf, conditionBinLength);
 
     return root;
@@ -36,8 +36,8 @@ static cJSON *jsonCondition(CC *cond) {
 
 
 static cJSON *jsonFulfillment(CC *cond) {
-    uint8_t buf[1000000];
-    size_t fulfillmentBinLength = cc_fulfillmentBinary(cond, buf, 1000000);
+    uint8_t buf[MAX_BINARY_CC_SIZE];
+    size_t fulfillmentBinLength = cc_fulfillmentBinary(cond, buf, MAX_BINARY_CC_SIZE);
 
     cJSON *root = cJSON_CreateObject();
     jsonAddHex(root, "fulfillment", buf, fulfillmentBinLength);

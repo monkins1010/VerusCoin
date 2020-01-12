@@ -41,6 +41,7 @@ class CTxHolder
             utxo = txh.utxo;
             height = txh.height;
             tx = txh.tx;
+	    return *this;
         }
 };
 
@@ -68,7 +69,7 @@ class CCheatList
         bool IsHeightOrGreaterInList(uint32_t height);
 
         // add a potential cheat transaction to the list. we do this for all stake transactions from orphaned stakes
-        bool Add(const CTxHolder &txh);
+        void Add(const CTxHolder &txh);
 
         // remove a transaction from the the list
         void Remove(const CTxHolder &txh);

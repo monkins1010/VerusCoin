@@ -15,6 +15,7 @@
 #include "zcash/Address.hpp"
 #include "zcash/NoteEncryption.hpp"
 #include "zcash/zip32.h"
+#include "pbaas/identity.h"
 
 #include <boost/signals2/signal.hpp>
 #include <boost/variant.hpp>
@@ -55,6 +56,17 @@ public:
     virtual bool RemoveWatchOnly(const CScript &dest) =0;
     virtual bool HaveWatchOnly(const CScript &dest) const =0;
     virtual bool HaveWatchOnly() const =0;
+
+    //! Support for identities
+    virtual bool HaveIdentity(const CIdentityID &idID) const =0;
+    virtual bool AddIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity) =0;
+    virtual bool UpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity) =0;
+    virtual bool AddUpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity) =0;
+    virtual bool RemoveIdentity(const CIdentityMapKey &mapKey, const uint256 &txid=uint256()) =0;
+    virtual bool GetIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t lteHeight=0x7fffffff) const =0;
+    virtual bool GetIdentity(const CIdentityMapKey &keyStart, const CIdentityMapKey &keyEnd, std::vector<std::pair<CIdentityMapKey, CIdentityMapValue>> &keysAndIdentityUpdates) const =0;
+    virtual bool GetIdentity(const CIdentityMapKey &mapKey, const uint256 &txid, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity) = 0;
+    virtual bool GetFirstIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t gteHeight=0) const =0;
 
     //! Add a spending key to the store.
     virtual bool AddSproutSpendingKey(const libzcash::SproutSpendingKey &sk) =0;
@@ -102,7 +114,8 @@ public:
 };
 
 typedef std::map<CKeyID, CKey> KeyMap;
-typedef std::map<CScriptID, CScript > ScriptMap;
+typedef std::map<CScriptID, CScript> ScriptMap;
+typedef std::multimap<arith_uint256, CIdentityMapValue> IdentityMap;
 typedef std::set<CScript> WatchOnlySet;
 typedef std::map<libzcash::SproutPaymentAddress, libzcash::SproutSpendingKey> SproutSpendingKeyMap;
 typedef std::map<libzcash::SproutPaymentAddress, libzcash::SproutViewingKey> SproutViewingKeyMap;
@@ -122,6 +135,8 @@ protected:
     HDSeed hdSeed;
     KeyMap mapKeys;
     ScriptMap mapScripts;
+    IdentityMap mapIdentities;
+
     WatchOnlySet setWatchOnly;
     SproutSpendingKeyMap mapSproutSpendingKeys;
     SproutViewingKeyMap mapSproutViewingKeys;
@@ -175,6 +190,19 @@ public:
     virtual bool AddCScript(const CScript& redeemScript);
     virtual bool HaveCScript(const CScriptID &hash) const;
     virtual bool GetCScript(const CScriptID &hash, CScript& redeemScriptOut) const;
+
+    virtual bool HaveIdentity(const CIdentityID &idID) const;
+    virtual bool AddIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    virtual bool UpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    virtual bool AddUpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity);
+    virtual bool RemoveIdentity(const CIdentityMapKey &mapKey, const uint256 &txid=uint256());
+    virtual bool GetIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t lteHeight=INT32_MAX) const;
+    virtual bool GetIdentity(const CIdentityMapKey &keyStart, const CIdentityMapKey &keyEnd, std::vector<std::pair<CIdentityMapKey, CIdentityMapValue>> &keysAndIdentityUpdates) const;
+    virtual bool GetIdentity(const CIdentityMapKey &mapKey, const uint256 &txid, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity);
+    virtual bool GetFirstIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t gteHeight=0) const;
+    virtual bool GetIdentities(std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &mine, 
+                               std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &imsigner, 
+                               std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &notmine);
 
     virtual bool AddWatchOnly(const CScript &dest);
     virtual bool RemoveWatchOnly(const CScript &dest);
@@ -313,5 +341,7 @@ typedef std::map<libzcash::SproutPaymentAddress, std::vector<unsigned char> > Cr
 
 //! Sapling 
 typedef std::map<libzcash::SaplingExtendedFullViewingKey, std::vector<unsigned char> > CryptedSaplingSpendingKeyMap;
+
+CScriptID ScriptOrIdentityID(const CScript& scr);
 
 #endif // BITCOIN_KEYSTORE_H

@@ -155,8 +155,55 @@ public:
         return result;
     }
 
+    CHashWriter &Reset()
+    {
+        ctx.Reset();
+        return *this;
+    }
+
     template<typename T>
     CHashWriter& operator<<(const T& obj) {
+        // Serialize to this stream
+        ::Serialize(*this, obj);
+        return (*this);
+    }
+};
+
+
+/** A writer stream (for serialization) that computes a 256-bit hash. */
+class CHashWriterSHA256
+{
+private:
+    CSHA256 ctx;
+
+    const int nType;
+    const int nVersion;
+public:
+
+    CHashWriterSHA256(int nTypeIn, int nVersionIn) : nType(nTypeIn), nVersion(nVersionIn) {}
+
+    int GetType() const { return nType; }
+    int GetVersion() const { return nVersion; }
+
+    void write(const char *pch, size_t size) {
+        ctx.Write((const unsigned char*)pch, size);
+    }
+
+    // invalidates the object
+    uint256 GetHash() {
+        uint256 result;
+        ctx.Finalize((unsigned char*)&result);
+        return result;
+    }
+
+    CHashWriterSHA256 &Reset()
+    {
+        ctx.Reset();
+        return *this;
+    }
+
+    template<typename T>
+    CHashWriterSHA256& operator<<(const T& obj) {
         // Serialize to this stream
         ::Serialize(*this, obj);
         return (*this);
@@ -288,8 +335,8 @@ public:
     int nType;
     int nVersion;
 
-    CVerusHashV2bWriter(int nTypeIn, int nVersionIn, uint64_t keysize=VERUSKEYSIZE) : 
-        nType(nTypeIn), nVersion(nVersionIn), state() {}
+    CVerusHashV2bWriter(int nTypeIn, int nVersionIn, int solutionVersion=SOLUTION_VERUSHHASH_V2, uint64_t keysize=VERUSKEYSIZE) : 
+        nType(nTypeIn), nVersion(nVersionIn), state(solutionVersion) {}
 
     void Reset() { state.Reset(); }
 
@@ -347,9 +394,9 @@ uint256 SerializeVerusHashV2(const T& obj, int nType=SER_GETHASH, int nVersion=P
  *  a carryless multiply-based hash as fill for the unused space.
  */
 template<typename T>
-uint256 SerializeVerusHashV2b(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL_VERSION)
+uint256 SerializeVerusHashV2b(const T& obj, int solutionVersion=SOLUTION_VERUSHHASH_V2, int nType=SER_GETHASH, int nVersion=PROTOCOL_VERSION)
 {
-    CVerusHashV2bWriter ss(nType, nVersion);
+    CVerusHashV2bWriter ss(nType, nVersion, solutionVersion);
     ss << obj;
     return ss.GetHash();
 }

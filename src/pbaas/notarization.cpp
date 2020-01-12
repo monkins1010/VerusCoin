@@ -1217,7 +1217,7 @@ uint256 CreateAcceptedNotarization(const CBlock &blk, int32_t txIndex, int32_t h
  *      c) main notarization thread output with remaining funds, no other output or fee deduction
  * 
  */
-bool ValidateAcceptedNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool ValidateAcceptedNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled)
 {
     // TODO: this validates the spending transaction
     // check the following things:
@@ -1249,7 +1249,7 @@ bool IsAcceptedNotarizationInput(const CScript &scriptSig)
  * a later notarization that agrees with it already present in the alternate chain when it is submitted. 
  * 
  */
-bool ValidateEarnedNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool ValidateEarnedNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled)
 {
     // this needs to validate that the block is mined or staked, that the notarization is properly formed,
     // cryptographically correct, and that it spends the proper finalization outputs
@@ -1271,7 +1271,7 @@ bool IsEarnedNotarizationInput(const CScript &scriptSig)
  * from. If the former, then this should be asserted to be validated, otherwise, it should be asserted to be invalidated.
  *  
  */
-bool ValidateFinalizeNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool ValidateFinalizeNotarization(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled)
 {
     // this must be spent by a transaction that is either the correct number of transactions ahead in confirming
     // us, or the correct number ahead in confirming another

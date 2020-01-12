@@ -438,7 +438,7 @@ public:
         SetNull();
     }
 
-    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
+    CTxOut(const CAmount& nValueIn, const CScript &scriptPubKeyIn);
 
     ADD_SERIALIZE_METHODS;
 

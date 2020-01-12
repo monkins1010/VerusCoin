@@ -7,6 +7,9 @@
 
 #include "key.h"
 #include "util.h"
+#include "pbaas/identity.h"
+#include "cc/CCinclude.h"
+#include "boost/algorithm/string.hpp"
 
 #include <boost/foreach.hpp>
 
@@ -52,6 +55,20 @@ bool CBasicKeyStore::GetHDSeed(HDSeed& seedOut) const
     }
 }
 
+CScriptID ScriptOrIdentityID(const CScript& scr)
+{
+    COptCCParams p;
+    CIdentity identity;
+    if (scr.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_PRIMARY && p.vData.size() && (identity = CIdentity(p.vData[0])).IsValid())
+    {
+        return CScriptID(identity.GetID());
+    }
+    else
+    {
+        return CScriptID(scr);
+    }
+}
+
 bool CBasicKeyStore::AddKeyPubKey(const CKey& key, const CPubKey &pubkey)
 {
     LOCK(cs_KeyStore);
@@ -61,11 +78,11 @@ bool CBasicKeyStore::AddKeyPubKey(const CKey& key, const CPubKey &pubkey)
 
 bool CBasicKeyStore::AddCScript(const CScript& redeemScript)
 {
-    if (redeemScript.size() > MAX_SCRIPT_ELEMENT_SIZE)
-        return error("CBasicKeyStore::AddCScript(): redeemScripts > %i bytes are invalid", MAX_SCRIPT_ELEMENT_SIZE);
+    if (redeemScript.size() > CScript::MAX_SCRIPT_ELEMENT_SIZE)
+        return error("CBasicKeyStore::AddCScript(): redeemScripts > %i bytes are invalid", CScript::MAX_SCRIPT_ELEMENT_SIZE);
 
     LOCK(cs_KeyStore);
-    mapScripts[CScriptID(redeemScript)] = redeemScript;
+    mapScripts[ScriptOrIdentityID(redeemScript)] = redeemScript;
     return true;
 }
 
@@ -85,6 +102,184 @@ bool CBasicKeyStore::GetCScript(const CScriptID &hash, CScript& redeemScriptOut)
         return true;
     }
     return false;
+}
+
+bool CBasicKeyStore::HaveIdentity(const CIdentityID &idID) const
+{
+    return mapIdentities.count(CIdentityMapKey(idID).MapKey()) != 0;
+}
+
+bool CBasicKeyStore::AddIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity)
+{
+    if (mapIdentities.count(mapKey.MapKey()) || !mapKey.IsValid())
+    {
+        return false;
+    }
+    mapIdentities.insert(make_pair(mapKey.MapKey(), identity));
+    return true;
+}
+
+bool CBasicKeyStore::UpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity)
+{
+    if (!mapIdentities.count(mapKey.MapKey()) || !mapKey.IsValid())
+    {
+        return false;
+    }
+    // erase and insert to replace
+    mapIdentities.erase(mapKey.MapKey());
+    mapIdentities.insert(make_pair(mapKey.MapKey(), identity));
+    return true;
+}
+
+bool CBasicKeyStore::AddUpdateIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &identity)
+{
+    arith_uint256 arithKey = mapKey.MapKey();
+    return CBasicKeyStore::AddIdentity(mapKey, identity) || CBasicKeyStore::UpdateIdentity(mapKey, identity);
+}
+
+bool CBasicKeyStore::RemoveIdentity(const CIdentityMapKey &mapKey, const uint256 &txid)
+{
+    auto localKey = mapKey;
+    if (localKey.idID.IsNull())
+    {
+        return false;
+    }
+    auto startIt = mapIdentities.lower_bound(localKey.MapKey());
+    if (localKey.blockHeight == 0)
+    {
+        localKey.blockHeight = 0x7fffffff;
+    }
+
+    if (startIt != mapIdentities.end())
+    {
+        if (txid.IsNull())
+        {
+            mapIdentities.erase(startIt, mapIdentities.upper_bound(localKey.MapKey()));
+        }
+        else
+        {
+            auto endIt = mapIdentities.upper_bound(localKey.MapKey());
+            for (; startIt != endIt; startIt++)
+            {
+                if (startIt->second.txid == txid)
+                {
+                    mapIdentities.erase(startIt);
+                    break;
+                }
+            }
+        }
+        
+        return true;
+    }
+    return false;
+}
+
+// return an identity if it is in the store
+bool CBasicKeyStore::GetIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t lteHeight) const
+{
+    // debug test - comment normally
+    // printf("lower_bound: %s\n", CIdentityMapKey(idID).ToString().c_str());
+    // printf("upper_bound: %s\n", CIdentityMapKey(idID, lteHeight >= INT32_MAX ? INT32_MAX : lteHeight + 1).ToString().c_str());
+    // printf("first: %s\n", mapIdentities.size() ? CIdentityMapKey(mapIdentities.begin()->first).ToString().c_str() : "");
+    // end debug test
+
+    auto itStart = mapIdentities.lower_bound(CIdentityMapKey(idID).MapKey());
+    if (itStart == mapIdentities.end())
+    {
+        return false;
+    } 
+    // point to the last
+    auto itEnd = mapIdentities.upper_bound(CIdentityMapKey(idID, lteHeight >= INT32_MAX ? INT32_MAX : lteHeight + 1).MapKey());
+    if (itEnd == mapIdentities.begin())
+    {
+        return false;
+    }
+
+    itEnd--;
+    CIdentityMapKey foundKey(itEnd->first);
+    if (foundKey.idID != idID)
+    {
+        return false;
+    }
+    keyAndIdentity = make_pair(foundKey, itEnd->second);
+    return true;
+}
+
+// return all identities between two map keys, inclusive
+bool CBasicKeyStore::GetIdentity(const CIdentityMapKey &keyStart, const CIdentityMapKey &keyEnd, std::vector<std::pair<CIdentityMapKey, CIdentityMapValue>> &keysAndIdentityUpdates) const
+{
+    auto itStart = mapIdentities.lower_bound(keyStart.MapKey());
+    if (itStart == mapIdentities.end())
+    {
+        return false;
+    }
+    auto itEnd = mapIdentities.upper_bound(keyEnd.MapKey());
+    for (; itStart != mapIdentities.end() && itStart != itEnd; itStart++)
+    {
+        keysAndIdentityUpdates.push_back(make_pair(CIdentityMapKey(itStart->first), itStart->second));
+    }
+    return true;
+}
+
+bool CBasicKeyStore::GetIdentity(const CIdentityMapKey &mapKey, const uint256 &txid, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity)
+{
+    CIdentityMapKey localKey = mapKey;
+    std::vector<std::pair<CIdentityMapKey, CIdentityMapValue>> toCheck;
+    bool found = false;
+
+    if (localKey.blockHeight == 0)
+    {
+        localKey.blockHeight = 0x7fffffff;
+    }
+    if (!GetIdentity(mapKey, localKey, toCheck))
+    {
+        return found;
+    }
+
+    for (auto id : toCheck)
+    {
+        if (id.second.txid == txid)
+        {
+            keyAndIdentity = id;
+            found = true;
+        }
+    }
+    return found;
+}
+
+// return the first identity not less than a specific key
+bool CBasicKeyStore::GetFirstIdentity(const CIdentityID &idID, std::pair<CIdentityMapKey, CIdentityMapValue> &keyAndIdentity, uint32_t gteHeight) const
+{
+    auto it = mapIdentities.lower_bound(CIdentityMapKey(idID, gteHeight).MapKey());
+    if (it == mapIdentities.end())
+    {
+        return false;
+    }
+    keyAndIdentity = make_pair(CIdentityMapKey(it->first), it->second);
+    return true;
+}
+
+bool CBasicKeyStore::GetIdentities(std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &mine, 
+                                   std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &imsigner, 
+                                   std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> &notmine)
+{
+    for (auto &identity : mapIdentities)
+    {
+        CIdentityMapKey idKey(identity.first);
+        if (idKey.flags & idKey.CAN_SPEND)
+        {
+            mine.push_back(make_pair(idKey, &identity.second));
+        }
+        else if (idKey.flags & idKey.CAN_SIGN)
+        {
+            imsigner.push_back(make_pair(idKey, &identity.second));
+        }
+        else
+        {
+            notmine.push_back(make_pair(idKey, &identity.second));
+        }
+    }
+    return (mine.size() || imsigner.size() || notmine.size());
 }
 
 bool CBasicKeyStore::AddWatchOnly(const CScript &dest)

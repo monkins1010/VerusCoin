@@ -34,6 +34,7 @@
 #include "pbaas/crosschainrpc.h"
 #include "pbaas/pbaas.h"
 #include "pbaas/notarization.h"
+#include "pbaas/identity.h"
 
 /*
  CCcustom has most of the functions that need to be extended to create a new CC contract.
@@ -124,20 +125,40 @@ std::string CurrencyStateAddr = "REU1HKkmdwdxKMpfD3QoxeERYd9tfMN6n9";
 std::string CurrencyStatePubKey = "0219af977f9a6c3779f1185decee2b77da446040055b912b00e115a52d4786059c";
 std::string CurrencyStateWIF = "Ur8YQJQ6guqmD6rXtrUtJ7fWxaEB5FaejCr3MxHAgMEwnjJnuGo5";
 
-// indentity primary output
-std::string IdentityPrimaryAddr = "";
-std::string IdentityPrimaryPubKey = "";
-std::string IdentityPrimaryWIF = "";
+// identity primary output
+std::string IdentityPrimaryAddr = "RS545EBdK5AzPTaGHNUg78wFuuAzBb74FB";
+std::string IdentityPrimaryPubKey = "030b2c39fb8357ca54a56ca3b07a74a6b162addb4d31afaefc9c53bfc17aae052c";
+std::string IdentityPrimaryWIF = "UtPq2QgtE9qcukeMA5grsHhr7eDzLo9BVwoN4QQRiv3coZn2ryXF";
 
-// indentity revoke output
-std::string IdentityRevokeAddr = "";
-std::string IdentityRevokePubKey = "";
-std::string IdentityRevokeWIF = "";
+// identity revoke output
+std::string IdentityRevokeAddr = "RG6My2zwh9hBFSgUhZ5UmmUtxBap57aU4N";
+std::string IdentityRevokePubKey = "03098d3fee3585ff42090c9cee5723a718dd27e7854761db4520eb70ade22a7802";
+std::string IdentityRevokeWIF = "UuLt6xUQqG74M4Rgm96xEb672DjfkHYEukdUHWfAMBE4Tsc8cBvC";
 
-// indentity recover output
-std::string IdentityRecoverAddr = "";
-std::string IdentityRecoverPubKey = "";
-std::string IdentityRecoverWIF = "";
+// identity recover output
+std::string IdentityRecoverAddr = "RRw9rJMPwdNqC1wgXn5vryJwMDyBgpXjYT";
+std::string IdentityRecoverPubKey = "03a058410b33f893fe182f15336577f3941c28c8cadcfb0395b9c31dd5c07ccd11";
+std::string IdentityRecoverWIF = "UuGtno91gaoJgy7nRgaBkWj6So3oBZ24fJWzULfU6LrsN4XZJckC";
+
+// identity commitment output
+std::string IdentityCommitmentAddr = "RCySaThHfVBcHZgjJGoBw3un4vcsRJNPYw";
+std::string IdentityCommitmentPubKey = "03c4eac0982458644a87458eebe2fdc4e754e15c378b66f16fbd913ae2792d2cb0";
+std::string IdentityCommitmentWIF = "Upfbmz3v16NM3zmQujmLSuaWeJ519fUKMqjusFwSDKgpBGMckWCr";
+
+// identity reservation output
+std::string IdentityReservationAddr = "RDbzJU8rEv4CkMABNUnKQoKDTfnikSm9fM";
+std::string IdentityReservationPubKey = "03974e76f57409197870d4e5539380b2f8468465c2bd374e3610edf1282cd1a304";
+std::string IdentityReservationWIF = "UqCXEj8oonBt6p9iDXbsAshCeFX7RsDpL6R62GUhTVRiSKDCQkYi";
+
+// atomic swap condition
+std::string AtomicSwapConditionAddr = "RQ55dLQ7uGnLx8scXfkaFV6QS6qVBGyxAG";
+std::string AtomicSwapConditionPubKey = "0231dbadc511bcafdb557faf0b49bea1e2a4ccc0259aeae16c618e1cc4d38f2f4d";
+std::string AtomicSwapConditionWIF = "Ux4w6K5ptuQG4SUEQd1bRV8X1LwzcLrVirApbXvThKYfm6uXEafJ";
+
+// condition to put time limits on a transaction output
+std::string TimeLimitsAddr = "REL7oLNeaeoQB1XauiHfcvjKMZC52Uj5xF";
+std::string TimeLimitsPubKey = "0391fa230bd2509cbcc165c636c79ff540a8e3615993b16b8e366770bc4261bf10";
+std::string TimeLimitsWIF = "UrRwoqyLMNddbASS7XV6rm3Q1JCBmMV9V5oPr92KEFmH5U8Evkf6";
 
 // Assets, aka Tokens
 #define FUNCNAME IsAssetsInput
@@ -317,7 +338,8 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             strcpy(cp->CChexstr,StakeGuardPubKey.c_str());
             memcpy(cp->CCpriv,DecodeSecret(StakeGuardWIF).begin(),32);
             cp->validate = StakeGuardValidate;
-            cp->ismyvin = IsStakeGuardInput;  // TODO: these input functions are not correct and should be as above with FUNCNAME/EVALCODE
+            cp->ismyvin = IsStakeGuardInput;  // TODO: these input functions are not useful for new CCs
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_PBAASDEFINITION:
@@ -327,6 +349,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(PBaaSDefinitionWIF).begin(),32);
             cp->validate = ValidateChainDefinition;
             cp->ismyvin = IsChainDefinitionInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_EARNEDNOTARIZATION:
@@ -336,6 +359,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(EarnedNotarizationWIF).begin(),32);
             cp->validate = ValidateEarnedNotarization;
             cp->ismyvin = IsEarnedNotarizationInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_ACCEPTEDNOTARIZATION:
@@ -345,6 +369,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(AcceptedNotarizationWIF).begin(),32);
             cp->validate = ValidateAcceptedNotarization;
             cp->ismyvin = IsAcceptedNotarizationInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_FINALIZENOTARIZATION:
@@ -354,6 +379,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(FinalizeNotarizationWIF).begin(),32);
             cp->validate = ValidateFinalizeNotarization;
             cp->ismyvin = IsFinalizeNotarizationInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_SERVICEREWARD:
@@ -363,6 +389,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(ServiceRewardWIF).begin(),32);
             cp->validate = ValidateServiceReward;
             cp->ismyvin = IsServiceRewardInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_RESERVE_OUTPUT:
@@ -372,6 +399,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(ReserveOutputWIF).begin(),32);
             cp->validate = ValidateReserveOutput;
             cp->ismyvin = IsReserveOutputInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_RESERVE_EXCHANGE:
@@ -381,6 +409,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(ReserveExchangeWIF).begin(),32);
             cp->validate = ValidateReserveExchange;
             cp->ismyvin = IsReserveExchangeInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_RESERVE_TRANSFER:
@@ -390,6 +419,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(ReserveTransferWIF).begin(),32);
             cp->validate = ValidateReserveTransfer;
             cp->ismyvin = IsReserveTransferInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_RESERVE_DEPOSIT:
@@ -399,6 +429,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(ReserveDepositWIF).begin(),32);
             cp->validate = ValidateReserveDeposit;
             cp->ismyvin = IsReserveDepositInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_CROSSCHAIN_IMPORT:
@@ -408,6 +439,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(CrossChainImportWIF).begin(),32);
             cp->validate = ValidateCrossChainImport;
             cp->ismyvin = IsCrossChainImportInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_CROSSCHAIN_EXPORT:
@@ -417,6 +449,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(CrossChainExportWIF).begin(),32);
             cp->validate = ValidateCrossChainExport;
             cp->ismyvin = IsCrossChainExportInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_CURRENCYSTATE:
@@ -426,6 +459,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv,DecodeSecret(CurrencyStateWIF).begin(),32);
             cp->validate = ValidateCurrencyState;
             cp->ismyvin = IsCurrencyStateInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_IDENTITY_PRIMARY:
@@ -435,6 +469,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv, DecodeSecret(IdentityPrimaryWIF).begin(),32);
             cp->validate = ValidateIdentityPrimary;
             cp->ismyvin = IsIdentityInput;
+            cp->contextualprecheck = &PrecheckIdentityPrimary;
             break;
 
         case EVAL_IDENTITY_REVOKE:
@@ -444,6 +479,7 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv, DecodeSecret(IdentityRevokeWIF).begin(),32);
             cp->validate = ValidateIdentityRevoke;
             cp->ismyvin = IsIdentityInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
         case EVAL_IDENTITY_RECOVER:
@@ -453,8 +489,30 @@ struct CCcontract_info *CCinit(struct CCcontract_info *cp, uint8_t evalcode)
             memcpy(cp->CCpriv, DecodeSecret(IdentityRecoverWIF).begin(),32);
             cp->validate = ValidateIdentityRecover;
             cp->ismyvin = IsIdentityInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
             break;
 
+        case EVAL_IDENTITY_COMMITMENT:
+            strcpy(cp->unspendableCCaddr, IdentityCommitmentAddr.c_str());
+            strcpy(cp->normaladdr, IdentityCommitmentAddr.c_str());
+            strcpy(cp->CChexstr, IdentityCommitmentPubKey.c_str());
+            memcpy(cp->CCpriv, DecodeSecret(IdentityCommitmentWIF).begin(),32);
+            cp->validate = ValidateIdentityCommitment;
+            cp->ismyvin = IsIdentityInput;
+            cp->contextualprecheck = DefaultCCContextualPreCheck;
+            break;
+
+        case EVAL_IDENTITY_RESERVATION:
+            strcpy(cp->unspendableCCaddr, IdentityReservationAddr.c_str());
+            strcpy(cp->normaladdr, IdentityReservationAddr.c_str());
+            strcpy(cp->CChexstr, IdentityReservationPubKey.c_str());
+            memcpy(cp->CCpriv, DecodeSecret(IdentityReservationWIF).begin(),32);
+            cp->validate = ValidateIdentityReservation;
+            cp->ismyvin = IsIdentityInput;
+            cp->contextualprecheck = &PrecheckIdentityReservation;
+            break;
+
+        // these are currently not used and should be triple checked if reenabled
         case EVAL_ASSETS:
             strcpy(cp->unspendableCCaddr,AssetsCCaddr);
             strcpy(cp->normaladdr,AssetsNormaladdr);

@@ -302,7 +302,7 @@ public:
         }
     }
 
-    bool SetVersionByHeight(uint32_t height)
+    void SetVersionByHeight(uint32_t height)
     {
         CVerusSolutionVector vsv = CVerusSolutionVector(nSolution);
         if (vsv.SetVersionByHeight(height) && vsv.Version() > 0)

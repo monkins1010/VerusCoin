@@ -615,17 +615,17 @@ public:
     static void SubmissionThreadStub();
     std::vector<std::pair<std::string, UniValue>> SubmitQualifiedBlocks();
 
-    bool QueueNewBlockHeader(CBlockHeader &bh);
+    void QueueNewBlockHeader(CBlockHeader &bh);
     void QueueEarnedNotarization(CBlock &blk, int32_t txIndex, int32_t height);
 
     bool AddMergedBlock(CPBaaSMergeMinedChainData &blkData);
     bool RemoveMergedBlock(uint160 chainID);
     bool GetChainInfo(uint160 chainID, CRPCChainData &rpcChainData);
-    uint32_t PruneOldChains(uint32_t pruneBefore);
+    void PruneOldChains(uint32_t pruneBefore);
     uint32_t CombineBlocks(CBlockHeader &bh);
 
     // returns false if destinations are empty or first is not either pubkey or pubkeyhash
-    bool SetLatestMiningOutputs(const std::vector<std::pair<int, CScript>> minerOutputs, CTxDestination &firstDestinationOut);
+    bool SetLatestMiningOutputs(const std::vector<std::pair<int, CScript>> &minerOutputs, CTxDestination &firstDestinationOut);
     void AggregateChainTransfers(const CTxDestination &feeOutput, uint32_t nHeight);
 
     // send new imports from this chain to the specified chain, which generally will be the notary chain
@@ -745,35 +745,6 @@ CTxOut MakeCC1ofAnyVout(uint8_t evalcode, CAmount nValue, std::vector<CTxDestina
 }
 
 template <typename TOBJ>
-CTxOut MakeCCMofNVout(uint8_t evalcode, CAmount nValue, const std::vector<CTxDestination> &vDest, const CKeyID &indexID, int M, const TOBJ &obj)
-{
-    CTxOut vout;
-    std::vector<CTxDestination> dests = vDest;
-
-    CC *payoutCond = MakeCCcondMofN(evalcode, dests, M);
-    vout = CTxOut(nValue, CCPubKey(payoutCond));
-    cc_free(payoutCond);
-
-    dests.insert(dests.begin(), CTxDestination(indexID));
-    std::vector<std::vector<unsigned char>> vvch({::AsVector((const TOBJ)obj)});
-    COptCCParams vParams = COptCCParams(COptCCParams::VERSION_V3, evalcode, M, (uint8_t)(vDest.size()), vDest, vvch);
-
-    for (auto &dest : dests)
-    {
-        CPubKey oneKey(boost::apply_visitor<GetPubKeyForPubKey>(GetPubKeyForPubKey(), dest));
-        std::vector<unsigned char> bytes = GetDestinationBytes(dest);
-        if ((!oneKey.IsValid() && bytes.size() != 20) || (bytes.size() != 33 && bytes.size() != 20))
-        {
-            printf("Invalid destination %s\n", EncodeDestination(dest).c_str());
-        }
-    }
-
-    // add the object to the end of the script
-    vout.scriptPubKey << vParams.AsVector() << OP_DROP;
-    return(vout);
-}
-
-template <typename TOBJ>
 CTxOut MakeCC1of2Vout(uint8_t evalcode, CAmount nValue, CPubKey pk1, CPubKey pk2, const TOBJ &obj)
 {
     CTxOut vout;
@@ -811,44 +782,39 @@ bool IsVerusActive();
 
 // used to export coins from one chain to another, if they are not native, they are represented on the other
 // chain as tokens
-bool ValidateCrossChainExport(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateCrossChainExport(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsCrossChainExportInput(const CScript &scriptSig);
 
 // used to validate import of coins from one chain to another. if they are not native and are supported,
 // they are represented o the chain as tokens
-bool ValidateCrossChainImport(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateCrossChainImport(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsCrossChainImportInput(const CScript &scriptSig);
 
 // used to validate a specific service reward based on the spending transaction
-bool ValidateServiceReward(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateServiceReward(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsServiceRewardInput(const CScript &scriptSig);
 
 // used as a proxy token output for a reserve currency on its fractional reserve chain
-bool ValidateReserveOutput(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateReserveOutput(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsReserveOutputInput(const CScript &scriptSig);
 
 // used to transfer a reserve currency between chains
-bool ValidateReserveTransfer(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateReserveTransfer(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsReserveTransferInput(const CScript &scriptSig);
 
 // used as exchange tokens between reserves and fractional reserves
-bool ValidateReserveExchange(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateReserveExchange(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsReserveExchangeInput(const CScript &scriptSig);
 
 // used to deposit reserves into a reserve UTXO set
-bool ValidateReserveDeposit(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateReserveDeposit(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsReserveDepositInput(const CScript &scriptSig);
 
-bool ValidateChainDefinition(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateChainDefinition(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsChainDefinitionInput(const CScript &scriptSig);
 
-bool ValidateCurrencyState(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+bool ValidateCurrencyState(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
 bool IsCurrencyStateInput(const CScript &scriptSig);
-
-bool ValidateIdentityPrimary(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
-bool ValidateIdentityRevoke(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
-bool ValidateIdentityRecover(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
-bool IsIdentityInput(const CScript &scriptSig);
 
 bool GetCCParams(const CScript &scr, COptCCParams &ccParams);
 

@@ -19,7 +19,6 @@ CScheduler::~CScheduler()
     assert(nThreadsServicingQueue == 0);
 }
 
-
 void CScheduler::serviceQueue()
 {
     boost::unique_lock<boost::mutex> lock(newTaskMutex);

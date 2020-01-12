@@ -1216,11 +1216,22 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         if (strcmp(ASSETCHAINS_SYMBOL,"VRSC") == 0)
         {
             CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV2, 310000);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV3, 800200);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV4, 800200);
+        }
+        else if (strcmp(ASSETCHAINS_SYMBOL,"VRSCTEST") == 0)
+        {
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV2, 1);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV3, 110);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV4, 110);
+            //CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV5, 110);
         }
         else
         {
             CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV2, 1);
             CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV3, 1);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV4, 1);
+            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV5, 1);
         }
     }
 
@@ -1568,6 +1579,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             fReindex = true;
         }
 
+        checkval = DEFAULT_TIMESTAMPINDEX;
         pblocktree->ReadFlag("timestampindex", checkval);
         bool defaultState = DEFAULT_TIMESTAMPINDEX ? DEFAULT_TIMESTAMPINDEX : checkval;
         fTimeStampIndex = GetBoolArg("-timestampindex", defaultState);
@@ -1578,6 +1590,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             fReindex = true;
         }
 
+        checkval = DEFAULT_INSIGHTEXPLORER;
         pblocktree->ReadFlag("insightexplorer", checkval);
         defaultState = DEFAULT_INSIGHTEXPLORER ? DEFAULT_INSIGHTEXPLORER : checkval;
         fInsightExplorer = GetBoolArg("-insightexplorer", defaultState);

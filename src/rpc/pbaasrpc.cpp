@@ -35,6 +35,7 @@
 
 #include "rpc/pbaasrpc.h"
 #include "pbaas/crosschainrpc.h"
+#include "pbaas/identity.h"
 #include "transaction_builder.h"
 
 using namespace std;
@@ -174,7 +175,7 @@ void GetDefinedChains(vector<CPBaaSChainDefinition> &chains, bool includeExpired
                 // TODO: remove/comment this if statement, as it is redundant with the one below
                 if (!valStr.read(chains.back().ToUniValue().write()))
                 {
-                    printf("Invalid characters in blockchain definition: %s\n", chains.back().ToUniValue().write());
+                    printf("Invalid characters in blockchain definition: %s\n", chains.back().ToUniValue().write().c_str());
                 }
 
                 // remove after to use less storage
@@ -540,9 +541,18 @@ bool CConnectedChains::CreateLatestImports(const CPBaaSChainDefinition &chainDef
 void CheckPBaaSAPIsValid()
 {
     if (!chainActive.LastTip() ||
-        CConstVerusSolutionVector::activationHeight.ActiveVersion(chainActive.LastTip()->GetHeight()) != CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3)
+        CConstVerusSolutionVector::activationHeight.ActiveVersion(chainActive.LastTip()->GetHeight()) < CConstVerusSolutionVector::activationHeight.ACTIVATE_PBAAS)
     {
         throw JSONRPCError(RPC_INVALID_REQUEST, "PBaaS not activated on blockchain.");
+    }
+}
+
+void CheckIdentityAPIsValid()
+{
+    if (!chainActive.LastTip() ||
+        CConstVerusSolutionVector::activationHeight.ActiveVersion(chainActive.LastTip()->GetHeight()) < CConstVerusSolutionVector::activationHeight.ACTIVATE_IDENTITY)
+    {
+        throw JSONRPCError(RPC_INVALID_REQUEST, "Identity APIs not activated on blockchain.");
     }
 }
 
@@ -714,9 +724,6 @@ UniValue getpendingchaintransfers(const UniValue& params, bool fHelp)
 
     if ((IsVerusActive() && GetChainDefinition(chainID, chainDef, &defHeight)) || (chainDef = ConnectedChains.NotaryChain().chainDefinition).GetChainID() == chainID)
     {
-        // which transaction are we in this block?
-        std::vector<std::pair<CAddressIndexKey, CAmount>> addressIndex;
-
         // look for new exports
         multimap<uint160, pair<CInputDescriptor, CReserveTransfer>> inputDescriptors;
 
@@ -2377,6 +2384,7 @@ UniValue listreservetransactions(const UniValue& params, bool fHelp)
         );
     }
     // lists all transactions in a wallet that are 
+    return NullUniValue;
 }
 
 CCoinbaseCurrencyState GetInitialCurrencyState(CPBaaSChainDefinition &chainDef, int32_t definitionHeight)
@@ -2443,7 +2451,7 @@ UniValue sendreserve(const UniValue& params, bool fHelp)
     if (fHelp || params.size() != 1)
     {
         throw runtime_error(
-            "sendreserve '[{\"name\": \"PBAASCHAIN\", \"paymentaddress\": \"RRehdmUV7oEAqoZnzEGBH34XysnWaBatct\", \"amount\": 5.0, \"convert\": 1}]'\n"
+            "sendreserve '{\"name\": \"PBAASCHAIN\", \"paymentaddress\": \"RRehdmUV7oEAqoZnzEGBH34XysnWaBatct\", \"amount\": 5.0, \"convert\": 1}' (returntx)\n"
             "\nThis sends a Verus output as a JSON object or lists of Verus outputs as a list of objects to an address on the same or another chain.\n"
             "\nFunds are sourced automatically from the current wallet, which must be present, as in sendtoaddress.\n"
 
@@ -2458,6 +2466,7 @@ UniValue sendreserve(const UniValue& params, bool fHelp)
             "           \"preconvert\"     : \"false\", (bool,   optional) auto-convert to PBaaS currency at market price, this only works if the order is mined before block start of the chain\n"
             "           \"subtractfee\"    : \"bool\",  (bool,   optional) if true, reduce amount to destination by the transfer and conversion fee amount. normal network fees are never subtracted"
             "       }\n"
+            "       \"returntx\"                        (bool,   optional) defaults to false and transaction is sent, if true, transaction is signed by this wallet and returned\n"
 
             "\nResult:\n"
             "       \"txid\" : \"transactionid\" (string) The transaction id.\n"
@@ -3938,7 +3947,7 @@ UniValue definechain(const UniValue& params, bool fHelp)
                                                " blocks and per-block notary rewards of >= 1000000 are required to define a chain\n");
     }
 
-    for (int i = 0; i < newChain.eras; i++)
+    for (int i = 0; i < newChain.rewards.size(); i++)
     {
         arith_uint256 reward(newChain.rewards[i]), decay(newChain.rewardsDecay[i]), limit(0x7fffffffffffffff);
         if (reward * decay > limit)
@@ -4130,6 +4139,862 @@ UniValue definechain(const UniValue& params, bool fHelp)
     uvret.push_back(Pair("hex", strHex));
 
     return uvret;
+}
+
+UniValue registernamecommitment(const UniValue& params, bool fHelp)
+{
+    if (fHelp || (params.size() < 2 && params.size() > 3))
+    {
+        throw runtime_error(
+            "registernamecommitment \"name\" \"controladdress\" (\"referralidentity\")\n"
+            "\nRegisters a name commitment, which is required as a source for the name to be used when registering an identity. The name commitment hides the name itself\n"
+            "while ensuring that the miner who mines in the registration cannot front-run the name unless they have also registered a name commitment for the same name or\n"
+            "are willing to forfeit the offer of payment for the chance that a commitment made now will allow them to register the name in the future.\n"
+
+            "\nArguments\n"
+            "\"name\"                           (string, required)  the unique name to commit to. creating a name commitment is not a registration, and if one is\n"
+            "                                                       created for a name that exists, it may succeed, but will never be able to be used.\n"
+            "\"controladdress\"                 (address, required) address that will control this commitment\n"
+            "\"referralidentity\"               (identity, optional)friendly name or identity address that is provided as a referral mechanism and to lower network cost of the ID\n"
+
+            "\nResult: obj\n"
+            "{\n"
+            "    \"txid\" : \"hexid\"\n"
+            "    \"namereservation\" :\n"
+            "    {\n"
+            "        \"name\"    : \"namestr\",     (string) the unique name in this commitment\n"
+            "        \"salt\"    : \"hexstr\",      (hex)    salt used to hide the commitment\n"
+            "        \"referral\": \"identityaddress\", (base58) address of the referring identity if there is one\n"
+            "        \"parent\"  : \"namestr\",   (string) name of the parent if not Verus or Verus test\n"
+            "        \"nameid\"  : \"address\",   (base58) identity address for this identity if it is created\n"
+            "    }\n"
+            "}\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("registernamecommitment", "\"name\"")
+            + HelpExampleRpc("registernamecommitment", "\"name\"")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    uint160 parent;
+    std::string name = CleanName(uni_get_str(params[0]), parent, true);
+
+    // if either we have an invalid name or an implied parent, that is not valid
+    if (name == "" || !parent.IsNull() || name != uni_get_str(params[0]))
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid name for commitment. Names must not have leading or trailing spaces and must not include any of the following characters between parentheses (\\/:*?\"<>|@)");
+    }
+
+    parent = ConnectedChains.ThisChain().GetChainID();
+
+    CTxDestination dest = DecodeDestination(uni_get_str(params[1]));
+    if (dest.which() == COptCCParams::ADDRTYPE_INVALID)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid control address for commitment");
+    }
+
+    // create the transaction with native coin as input
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    CIdentityID referrer;
+    if (params.size() > 2)
+    {
+        CTxDestination referDest = DecodeDestination(uni_get_str(params[2]));
+        if (referDest.which() != COptCCParams::ADDRTYPE_ID)
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid referral identity for commitment, must be a currently registered friendly name or i-address");
+        }
+        referrer = CIdentityID(GetDestinationID(referDest));
+        if (!CIdentity::LookupIdentity(referrer).IsValidUnrevoked())
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Referral identity for commitment must be a currently valid, unrevoked friendly name or i-address");
+        }
+    }
+
+    CNameReservation nameRes(name, referrer, GetRandHash());
+    CCommitmentHash commitment(nameRes.GetCommitment());
+    
+    CConditionObj<CCommitmentHash> condObj(EVAL_IDENTITY_COMMITMENT, std::vector<CTxDestination>({dest}), 1, &commitment);
+    std::vector<CRecipient> outputs = std::vector<CRecipient>({{MakeMofNCCScript(condObj, &dest), CCommitmentHash::DEFAULT_OUTPUT_AMOUNT, false}});
+    CWalletTx wtx;
+
+    if (CIdentity::LookupIdentity(CIdentity::GetID(name, parent)).IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Identity already exists.");
+    }
+
+    CReserveKey reserveKey(pwalletMain);
+    CAmount fee;
+    int nChangePos;
+    string failReason;
+
+    if (!pwalletMain->CreateTransaction(outputs, wtx, reserveKey, fee, nChangePos, failReason))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to create commitment transaction: " + failReason);
+    }
+    if (!pwalletMain->CommitTransaction(wtx, reserveKey))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Could not commit transaction " + wtx.GetHash().GetHex());
+    }
+
+    UniValue ret(UniValue::VOBJ);
+    ret.push_back(Pair("txid", wtx.GetHash().GetHex()));
+    ret.push_back(Pair("namereservation", nameRes.ToUniValue()));
+    return ret;
+}
+
+UniValue registeridentity(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2)
+    {
+        throw runtime_error(
+            "registeridentity \"jsonidregistration\" feeoffer\n"
+            "\n\n"
+
+            "\nArguments\n"
+            "{\n"
+            "    \"txid\" : \"hexid\",          (hex)    the transaction ID of the name committment for this ID name\n"
+            "    \"namereservation\" :\n"
+            "    {\n"
+            "        \"name\": \"namestr\",     (string) the unique name in this commitment\n"
+            "        \"salt\": \"hexstr\",      (hex)    salt used to hide the commitment\n"
+            "        \"referrer\": \"identityID\", (name@ or address) must be a valid ID to use as a referrer to receive a discount\n"
+            "    },\n"
+            "    \"identity\" :\n"
+            "    {\n"
+            "        \"name\": \"namestr\",     (string) the unique name for this identity\n"
+            "        ...\n"
+            "    }\n"
+            "}\n"
+            "feeoffer                           (amount, optional) amount to offer miner/staker for the registration fee, if missing, uses standard price\n\n"
+
+            "\nResult:\n"
+            "   transactionid                   (hexstr)\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("registeridentity", "jsonidregistration")
+            + HelpExampleRpc("registeridentity", "jsonidregistration")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    // all names have a parent of the current chain
+    uint160 parent = ConnectedChains.ThisChain().GetChainID();
+
+    uint256 txid = uint256S(uni_get_str(find_value(params[0], "txid")));
+    CNameReservation reservation(find_value(params[0], "namereservation"));
+
+    CIdentity newID(find_value(params[0], "identity"));
+    if (!newID.IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid identity");
+    }
+
+    CAmount feeOffer;
+    CAmount minFeeOffer = reservation.referral.IsNull() ? CIdentity::FullRegistrationAmount() : CIdentity::ReferredRegistrationAmount();
+
+    if (params.size() > 1)
+    {
+        feeOffer = AmountFromValue(params[1]);
+    }
+    else
+    {
+        feeOffer = minFeeOffer;
+    }
+
+    if (feeOffer < minFeeOffer)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Fee offer must be at least " + ValueFromAmount(CIdentity::MinRegistrationAmount()).write());
+    }
+
+    uint160 impliedParent;
+    if (txid.IsNull() || CleanName(reservation.name, impliedParent) != CleanName(newID.name, impliedParent) || !impliedParent.IsNull())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid identity description or mismatched reservation.");
+    }
+
+    // lookup commitment to be sure that we can register this identity
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    uint256 hashBlk;
+    uint32_t commitmentHeight;
+    CTransaction txOut;
+    CCommitmentHash ch;
+    int commitmentOutput;
+
+    // must be present and in a mined block
+    {
+        LOCK(mempool.cs);
+        if (!myGetTransaction(txid, txOut, hashBlk) || hashBlk.IsNull())
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid or unconfirmed commitment transaction id");
+        }
+
+        auto indexIt = mapBlockIndex.find(hashBlk);
+        if (indexIt == mapBlockIndex.end() || indexIt->second->GetHeight() > chainActive.Height() || chainActive[indexIt->second->GetHeight()]->GetBlockHash() != indexIt->second->GetBlockHash())
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid or unconfirmed commitment");
+        }
+
+        commitmentHeight = indexIt->second->GetHeight();
+
+        for (int i = 0; i < txOut.vout.size(); i++)
+        {
+            COptCCParams p;
+            if (txOut.vout[i].scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_COMMITMENT && p.vData.size())
+            {
+                commitmentOutput = i;
+                ::FromVector(p.vData[0], ch);
+                break;
+            }
+        }
+        if (ch.hash.IsNull())
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid commitment hash");
+        }
+    }
+
+    if (ch.hash != reservation.GetCommitment().hash)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid commitment salt or referral ID");
+    }
+
+    // when creating an ID, the parent is always the current chains, and it is invalid to specify a parent
+    if (!newID.parent.IsNull())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid to specify parent or qualified name when creating an identity. Parent is determined by the current blockchain.");
+    }
+
+    newID.parent = parent;
+
+    CIdentity dupID = newID.LookupIdentity(newID.GetID());
+    if (dupID.IsValid())
+    {
+        throw JSONRPCError(RPC_VERIFY_ALREADY_IN_CHAIN, "Identity already exists.");
+    }
+
+    // make sure we have a revocation and recovery authority defined
+    CIdentity revocationAuth = (newID.revocationAuthority.IsNull() || newID.revocationAuthority == newID.GetID()) ? newID : newID.LookupIdentity(newID.revocationAuthority);
+    CIdentity recoveryAuth = (newID.recoveryAuthority.IsNull() || newID.recoveryAuthority == newID.GetID()) ? newID : newID.LookupIdentity(newID.recoveryAuthority);
+
+    if (!recoveryAuth.IsValidUnrevoked() || !revocationAuth.IsValidUnrevoked())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid or revoked recovery, or revocation identity.");
+    }
+
+    // now we have a new and valid primary, revocation, and recovery identity, as well as a valid reservation
+    newID.revocationAuthority = revocationAuth.GetID();
+    newID.recoveryAuthority = recoveryAuth.GetID();
+
+    // create the identity definition transaction & reservation key output
+    CConditionObj<CNameReservation> condObj(EVAL_IDENTITY_RESERVATION, std::vector<CTxDestination>({CIdentityID(newID.GetID())}), 1, &reservation);
+    CTxDestination resIndexDest = CKeyID(CCrossChainRPCData::GetConditionID(newID.GetID(), EVAL_IDENTITY_RESERVATION));
+    std::vector<CRecipient> outputs = std::vector<CRecipient>({{newID.IdentityUpdateOutputScript(), 0, false}});
+
+    // add referrals, Verus supports referrals
+    if ((ConnectedChains.ThisChain().IDReferrals() || IsVerusActive()) && !reservation.referral.IsNull())
+    {
+        uint32_t referralHeight;
+        CTxIn referralTxIn;
+        CTransaction referralIdTx;
+        auto referralIdentity =  newID.LookupIdentity(reservation.referral, commitmentHeight - 1);
+        if (referralIdentity.IsValidUnrevoked())
+        {
+            if (!newID.LookupFirstIdentity(reservation.referral, &referralHeight, &referralTxIn, &referralIdTx).IsValid())
+            {
+                throw JSONRPCError(RPC_DATABASE_ERROR, "Database or blockchain data error, \"" + referralIdentity.name + "\" seems valid, but first instance is not found in index");
+            }
+
+            // create outputs for this referral and up to n identities back in the referral chain
+            outputs.push_back({referralIdentity.TransparentOutput(referralIdentity.GetID()), CIdentity::ReferralAmount(), false});
+            feeOffer -= CIdentity::ReferralAmount();
+            int afterId = referralTxIn.prevout.n + 1;
+            for (int i = afterId; i < referralIdTx.vout.size() && (i - afterId) < (CIdentity::REFERRAL_LEVELS - 1); i++)
+            {
+                CTxDestination nextID;
+                COptCCParams p, master;
+
+                if (referralIdTx.vout[i].scriptPubKey.IsPayToCryptoCondition(p) && 
+                    p.IsValid() && 
+                    p.evalCode == EVAL_NONE && 
+                    p.vKeys.size() == 1 && 
+                    (p.vData.size() == 1 ||
+                    (p.vData.size() == 2 && 
+                    p.vKeys[0].which() == COptCCParams::ADDRTYPE_ID &&
+                    (master = COptCCParams(p.vData[1])).IsValid() &&
+                    master.evalCode == EVAL_NONE)))
+                {
+                    outputs.push_back({newID.TransparentOutput(CIdentityID(GetDestinationID(p.vKeys[0]))), CIdentity::ReferralAmount(), false});
+                    feeOffer -= CIdentity::ReferralAmount();
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        else
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid or revoked referral identity at time of commitment");
+        }
+    }
+
+    CScript reservationOutScript = MakeMofNCCScript(condObj, &resIndexDest);
+    outputs.push_back({reservationOutScript, CNameReservation::DEFAULT_OUTPUT_AMOUNT, false});
+
+    // make one dummy output, which CreateTransaction will leave as last, and we will remove to add its output to the fee
+    // this serves to keep the change output after our real reservation output
+    outputs.push_back({reservationOutScript, feeOffer, false});
+
+    CWalletTx wtx;
+
+    CReserveKey reserveKey(pwalletMain);
+    CAmount fee;
+    int nChangePos;
+    string failReason;
+
+    if (!pwalletMain->CreateTransaction(outputs, wtx, reserveKey, fee, nChangePos, failReason, nullptr, false))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to create identity transaction: " + failReason);
+    }
+
+    // add commitment output
+    CMutableTransaction mtx(wtx);
+    mtx.vin.push_back(CTxIn(txid, commitmentOutput));
+
+    // remove the fee offer output
+    mtx.vout.pop_back();
+
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    // now sign
+    CCoinsViewCache view(pcoinsTip);
+    for (int i = 0; i < wtx.vin.size(); i++)
+    {
+        bool signSuccess;
+        SignatureData sigdata;
+
+        CCoins coins;
+        if (!(view.GetCoins(wtx.vin[i].prevout.hash, coins) && coins.IsAvailable(wtx.vin[i].prevout.n)))
+        {
+            break;
+        }
+
+        CAmount value = coins.vout[wtx.vin[i].prevout.n].nValue;
+
+        signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &wtx, i, value, coins.vout[wtx.vin[i].prevout.n].scriptPubKey), coins.vout[wtx.vin[i].prevout.n].scriptPubKey, sigdata, CurrentEpochBranchId(chainActive.Height(), Params().GetConsensus()));
+
+        if (!signSuccess)
+        {
+            LogPrintf("%s: failure to sign identity registration tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            printf("%s: failure to sign identity registration tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to sign transaction");
+        } else {
+            UpdateTransaction(mtx, i, sigdata);
+        }
+    }
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    if (!pwalletMain->CommitTransaction(wtx, reserveKey))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Could not commit transaction " + wtx.GetHash().GetHex());
+    }
+
+    // including definitions and claims thread
+    return UniValue(wtx.GetHash().GetHex());
+}
+
+UniValue updateidentity(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2)
+    {
+        throw runtime_error(
+            "updateidentity \"jsonidentity\" (returntx)\n"
+            "\n\n"
+
+            "\nArguments\n"
+            "       \"returntx\"                        (bool,   optional) defaults to false and transaction is sent, if true, transaction is signed by this wallet and returned\n"
+
+            "\nResult:\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("updateidentity", "\'{\"name\" : \"myname\"}\'")
+            + HelpExampleRpc("updateidentity", "\'{\"name\" : \"myname\"}\'")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    // get identity
+    bool returnTx = false;
+    CIdentity newID(params[0]);
+
+    if (!newID.IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid JSON ID parameter");
+    }
+
+    if (params.size() > 1)
+    {
+        returnTx = uni_get_bool(params[1], false);
+    }
+
+    CTxIn idTxIn;
+    CIdentity oldID;
+    uint32_t idHeight;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    if (!(oldID = CIdentity::LookupIdentity(newID.GetID(), 0, &idHeight, &idTxIn)).IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "ID not found " + newID.ToUniValue().write());
+    }
+
+    // create the identity definition transaction
+    std::vector<CRecipient> outputs = std::vector<CRecipient>({{newID.IdentityUpdateOutputScript(), 0, false}});
+    CWalletTx wtx;
+
+    CReserveKey reserveKey(pwalletMain);
+    CAmount fee;
+    int nChangePos;
+    string failReason;
+
+    if (!pwalletMain->CreateTransaction(outputs, wtx, reserveKey, fee, nChangePos, failReason, nullptr, false))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Unable to create update transaction: " + failReason);
+    }
+
+    CMutableTransaction mtx(wtx);
+    mtx.vin.push_back(idTxIn);
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    // now sign
+    CCoinsViewCache view(pcoinsTip);
+    for (int i = 0; i < wtx.vin.size(); i++)
+    {
+        bool signSuccess;
+        SignatureData sigdata;
+
+        CCoins coins;
+        if (!(view.GetCoins(wtx.vin[i].prevout.hash, coins) && coins.IsAvailable(wtx.vin[i].prevout.n)))
+        {
+            break;
+        }
+
+        CAmount value = coins.vout[wtx.vin[i].prevout.n].nValue;
+
+        signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &wtx, i, value, coins.vout[wtx.vin[i].prevout.n].scriptPubKey), coins.vout[wtx.vin[i].prevout.n].scriptPubKey, sigdata, CurrentEpochBranchId(chainActive.Height(), Params().GetConsensus()));
+
+        if (!signSuccess)
+        {
+            LogPrintf("%s: failure to sign identity update tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            printf("%s: failure to sign identity update tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to sign transaction");
+        } else {
+            UpdateTransaction(mtx, i, sigdata);
+        }
+    }
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    if (returnTx)
+    {
+        return EncodeHexTx(wtx);
+    }
+    else if (!pwalletMain->CommitTransaction(wtx, reserveKey))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Could not commit transaction " + wtx.GetHash().GetHex());
+    }
+    return wtx.GetHash().GetHex();
+}
+
+UniValue revokeidentity(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2)
+    {
+        throw runtime_error(
+            "revokeidentity \"nameorID\" (returntx)\n"
+            "\n\n"
+
+            "\nArguments\n"
+            "       \"returntx\"                        (bool,   optional) defaults to false and transaction is sent, if true, transaction is signed by this wallet and returned\n"
+
+            "\nResult:\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("revokeidentity", "\"nameorID\"")
+            + HelpExampleRpc("revokeidentity", "\"nameorID\"")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    // get identity
+    bool returnTx = false;
+    CTxDestination idDest = DecodeDestination(uni_get_str(params[0]));
+
+    if (idDest.which() != COptCCParams::ADDRTYPE_ID)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid JSON ID parameter");
+    }
+
+    CIdentityID idID(GetDestinationID(idDest));
+
+    if (params.size() > 1)
+    {
+        returnTx = uni_get_bool(params[1], false);
+    }
+
+    CTxIn idTxIn;
+    CIdentity oldID;
+    uint32_t idHeight;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    if (!(oldID = CIdentity::LookupIdentity(idID, 0, &idHeight, &idTxIn)).IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "ID not found " + EncodeDestination(idID));
+    }
+
+    CIdentity newID(oldID);
+    newID.Revoke();
+
+    // create the identity definition transaction
+    std::vector<CRecipient> outputs = std::vector<CRecipient>({{newID.IdentityUpdateOutputScript(), 0, false}});
+    CWalletTx wtx;
+
+    CReserveKey reserveKey(pwalletMain);
+    CAmount fee;
+    int nChangePos;
+    string failReason;
+
+    if (!pwalletMain->CreateTransaction(outputs, wtx, reserveKey, fee, nChangePos, failReason, nullptr, false))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Unable to create update transaction: " + failReason);
+    }
+    CMutableTransaction mtx(wtx);
+
+    // add the spend of the last ID transaction output
+    mtx.vin.push_back(idTxIn);
+
+    // all of the reservation output is actually the fee offer, so zero the output
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    // now sign
+    CCoinsViewCache view(pcoinsTip);
+    for (int i = 0; i < wtx.vin.size(); i++)
+    {
+        bool signSuccess;
+        SignatureData sigdata;
+
+        CCoins coins;
+        if (!(view.GetCoins(wtx.vin[i].prevout.hash, coins) && coins.IsAvailable(wtx.vin[i].prevout.n)))
+        {
+            break;
+        }
+
+        CAmount value = coins.vout[wtx.vin[i].prevout.n].nValue;
+
+        signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &wtx, i, value, coins.vout[wtx.vin[i].prevout.n].scriptPubKey), coins.vout[wtx.vin[i].prevout.n].scriptPubKey, sigdata, CurrentEpochBranchId(chainActive.Height(), Params().GetConsensus()));
+
+        if (!signSuccess)
+        {
+            LogPrintf("%s: failure to sign identity revocation tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            printf("%s: failure to sign identity revocation tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to sign transaction");
+        } else {
+            UpdateTransaction(mtx, i, sigdata);
+        }
+    }
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    if (returnTx)
+    {
+        return EncodeHexTx(wtx);
+    }
+    else if (!pwalletMain->CommitTransaction(wtx, reserveKey))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Could not commit transaction " + wtx.GetHash().GetHex());
+    }
+    return wtx.GetHash().GetHex();
+}
+
+UniValue recoveridentity(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 2)
+    {
+        throw runtime_error(
+            "recoveridentity \"jsonidentity\" (returntx)\n"
+            "\n\n"
+
+            "\nArguments\n"
+            "       \"returntx\"                        (bool,   optional) defaults to false and transaction is sent, if true, transaction is signed by this wallet and returned\n"
+
+            "\nResult:\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("recoveridentity", "\'{\"name\" : \"myname\"}\'")
+            + HelpExampleRpc("recoveridentity", "\'{\"name\" : \"myname\"}\'")
+        );
+    }
+    CheckIdentityAPIsValid();
+
+    // get identity
+    bool returnTx = false;
+    CIdentity newID(params[0]);
+
+    if (!newID.IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid JSON ID parameter");
+    }
+
+    if (params.size() > 1)
+    {
+        returnTx = uni_get_bool(params[1], false);
+    }
+
+    CTxIn idTxIn;
+    CIdentity oldID;
+    uint32_t idHeight;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    if (!(oldID = CIdentity::LookupIdentity(newID.GetID(), 0, &idHeight, &idTxIn)).IsValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "ID not found " + newID.ToUniValue().write());
+    }
+
+    if (!oldID.IsRevoked())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Identity must be revoked in order to recover : " + newID.name);
+    }
+
+    // create the identity definition transaction
+    std::vector<CRecipient> outputs = std::vector<CRecipient>({{newID.IdentityUpdateOutputScript(), 0, false}});
+    CWalletTx wtx;
+
+    CReserveKey reserveKey(pwalletMain);
+    CAmount fee;
+    int nChangePos;
+    string failReason;
+
+    if (!pwalletMain->CreateTransaction(outputs, wtx, reserveKey, fee, nChangePos, failReason, nullptr, false))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Unable to create update transaction: " + failReason);
+    }
+    CMutableTransaction mtx(wtx);
+
+    // add the spend of the last ID transaction output
+    mtx.vin.push_back(idTxIn);
+
+    // all of the reservation output is actually the fee offer, so zero the output
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    // now sign
+    CCoinsViewCache view(pcoinsTip);
+    for (int i = 0; i < wtx.vin.size(); i++)
+    {
+        bool signSuccess;
+        SignatureData sigdata;
+
+        CCoins coins;
+        if (!(view.GetCoins(wtx.vin[i].prevout.hash, coins) && coins.IsAvailable(wtx.vin[i].prevout.n)))
+        {
+            break;
+        }
+
+        CAmount value = coins.vout[wtx.vin[i].prevout.n].nValue;
+
+        signSuccess = ProduceSignature(TransactionSignatureCreator(pwalletMain, &wtx, i, value, coins.vout[wtx.vin[i].prevout.n].scriptPubKey), coins.vout[wtx.vin[i].prevout.n].scriptPubKey, sigdata, CurrentEpochBranchId(chainActive.Height(), Params().GetConsensus()));
+
+        if (!signSuccess)
+        {
+            LogPrintf("%s: failure to sign identity recovery tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            printf("%s: failure to sign identity recovery tx for input %d from output %d of %s\n", __func__, i, wtx.vin[i].prevout.n, wtx.vin[i].prevout.hash.GetHex().c_str());
+            throw JSONRPCError(RPC_TRANSACTION_ERROR, "Failed to sign transaction");
+        } else {
+            UpdateTransaction(mtx, i, sigdata);
+        }
+    }
+    *static_cast<CTransaction*>(&wtx) = CTransaction(mtx);
+
+    if (returnTx)
+    {
+        return EncodeHexTx(wtx);
+    }
+    else if (!pwalletMain->CommitTransaction(wtx, reserveKey))
+    {
+        throw JSONRPCError(RPC_TRANSACTION_ERROR, "Could not commit transaction " + wtx.GetHash().GetHex());
+    }
+    return wtx.GetHash().GetHex();
+}
+
+UniValue getidentity(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() != 1)
+    {
+        throw runtime_error(
+            "getidentity \"name\"\n"
+            "\n\n"
+
+            "\nArguments\n"
+
+            "\nResult:\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("getidentity", "\"name@\"")
+            + HelpExampleRpc("getidentity", "\"name@\"")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    CTxDestination idID = DecodeDestination(uni_get_str(params[0]));
+    if (idID.which() != COptCCParams::ADDRTYPE_ID)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Identity parameter must be valid friendly name or identity address: \"" + uni_get_str(params[0]) + "\"");
+    }
+
+    CTxIn idTxIn;
+    uint32_t height;
+
+    CIdentity identity;
+    bool canSign = false, canSpend = false, found = false;
+
+    if (pwalletMain)
+    {
+        LOCK(pwalletMain->cs_wallet);
+        uint256 txID;
+        std::pair<CIdentityMapKey, CIdentityMapValue> keyAndIdentity;
+        if (pwalletMain->GetIdentity(GetDestinationID(idID), keyAndIdentity))
+        {
+            found = true;
+            canSign = keyAndIdentity.first.flags & keyAndIdentity.first.CAN_SIGN;
+            canSpend = keyAndIdentity.first.flags & keyAndIdentity.first.CAN_SPEND;
+            identity = static_cast<CIdentity>(keyAndIdentity.second);
+        }
+    }
+
+    identity = CIdentity::LookupIdentity(CIdentityID(GetDestinationID(idID)), 0, &height, &idTxIn);
+
+    UniValue ret(UniValue::VOBJ);
+
+    uint160 parent;
+    if (identity.IsValid() && identity.name == CleanName(identity.name, parent, true))
+    {
+        ret.push_back(Pair("identity", identity.ToUniValue()));
+        ret.push_back(Pair("status", identity.IsRevoked() ? "revoked" : "active"));
+        ret.push_back(Pair("canspendfor", canSpend));
+        ret.push_back(Pair("cansignfor", canSign));
+        ret.push_back(Pair("blockheight", (int64_t)height));
+        ret.push_back(Pair("txid", idTxIn.prevout.hash.GetHex()));
+        ret.push_back(Pair("vout", (int32_t)idTxIn.prevout.n));
+        return ret;
+    }
+    else
+    {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Identity not found");
+    }
+}
+
+UniValue IdentityPairToUni(const std::pair<CIdentityMapKey, CIdentityMapValue *> &identity)
+{
+    UniValue oneID(UniValue::VOBJ);
+
+    if (identity.first.IsValid() && identity.second->IsValid())
+    {
+        oneID.push_back(Pair("identity", identity.second->ToUniValue()));
+        oneID.push_back(Pair("blockheight", (int64_t)identity.first.blockHeight));
+        oneID.push_back(Pair("txid", identity.second->txid.GetHex()));
+        if (identity.second->IsRevoked())
+        {
+            oneID.push_back(Pair("status", "revoked"));
+            oneID.push_back(Pair("canspendfor", 0));
+            oneID.push_back(Pair("cansignfor", 0));
+        }
+        else
+        {
+            oneID.push_back(Pair("status", "active"));
+            oneID.push_back(Pair("canspendfor", bool(identity.first.flags & identity.first.CAN_SPEND)));
+            oneID.push_back(Pair("cansignfor", bool(identity.first.flags & identity.first.CAN_SIGN)));
+        }
+    }
+    return oneID;
+}
+
+UniValue listidentities(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() > 3)
+    {
+        throw runtime_error(
+            "listidentities (includecansign) (includewatchonly)\n"
+            "\n\n"
+
+            "\nArguments\n"
+            "    \"includecanspend\"    (bool, optional, default=true)    Include identities for which we can spend/authorize\n"
+            "    \"includecansign\"     (bool, optional, default=true)    Include identities that we can only sign for but not spend\n"
+            "    \"includewatchonly\"   (bool, optional, default=false)   Include identities that we can neither sign nor spend, but are either watched or are co-signers with us\n"
+
+            "\nResult:\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("listidentities", "\'{\"name\" : \"myname\"}\'")
+            + HelpExampleRpc("listidentities", "\'{\"name\" : \"myname\"}\'")
+        );
+    }
+
+    CheckIdentityAPIsValid();
+
+    std::vector<std::pair<CIdentityMapKey, CIdentityMapValue *>> mine, imsigner, notmine;
+
+    bool includeCanSpend = params.size() > 0 ? uni_get_bool(params[0], true) : true;
+    bool includeCanSign = params.size() > 1 ? uni_get_bool(params[1], true) : true;
+    bool includeWatchOnly = params.size() > 2 ? uni_get_bool(params[2], false) : false;
+
+    if (pwalletMain->GetIdentities(mine, imsigner, notmine))
+    {
+        UniValue ret(UniValue::VARR);
+        if (includeCanSpend)
+        {
+            for (auto identity : mine)
+            {
+                uint160 parent;
+                if (identity.second->IsValid() && identity.second->name == CleanName(identity.second->name, parent, true))
+                {
+                    ret.push_back(IdentityPairToUni(identity));
+                }
+            }
+        }
+        if (includeCanSign)
+        {
+            for (auto identity : imsigner)
+            {
+                uint160 parent;
+                if (identity.second->IsValid() && identity.second->name == CleanName(identity.second->name, parent, true))
+                {
+                    ret.push_back(IdentityPairToUni(identity));
+                }
+            }
+        }
+        if (includeWatchOnly)
+        {
+            for (auto identity : notmine)
+            {
+                uint160 parent;
+                if (identity.second->IsValid() && identity.second->name == CleanName(identity.second->name, parent, true))
+                {
+                    ret.push_back(IdentityPairToUni(identity));
+                }
+            }
+        }
+        return ret;
+    }
+    else
+    {
+        return NullUniValue;
+    }
 }
 
 UniValue addmergedblock(const UniValue& params, bool fHelp)
@@ -4611,25 +5476,33 @@ UniValue getmergedblocktemplate(const UniValue& params, bool fHelp)
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
-    { "pbaas",        "getchaindefinition",           &getchaindefinition,     true  },
-    { "pbaas",        "getdefinedchains",             &getdefinedchains,       true  },
-    { "pbaas",        "getmergedblocktemplate",       &getmergedblocktemplate, true  },
-    { "pbaas",        "getnotarizationdata",          &getnotarizationdata,    true  },
-    { "pbaas",        "getcrossnotarization",         &getcrossnotarization,   true  },
-    { "pbaas",        "definechain",                  &definechain,            true  },
-    { "pbaas",        "sendreserve",                  &sendreserve,            true  },
-    { "pbaas",        "getpendingchaintransfers",     &getpendingchaintransfers, true  },
-    { "pbaas",        "getchainexports",              &getchainexports,        true  },
-    { "pbaas",        "getchainimports",              &getchainimports,        true  },
-    { "pbaas",        "reserveexchange",              &reserveexchange,        true  },
-    { "pbaas",        "getinitialcurrencystate",      &getinitialcurrencystate, true  },
-    { "pbaas",        "getcurrencystate",             &getcurrencystate,       true  },
-    { "pbaas",        "getlatestimportsout",          &getlatestimportsout,    true  },
-    { "pbaas",        "getlastimportin",              &getlastimportin,        true  },
-    { "pbaas",        "refundfailedlaunch",           &refundfailedlaunch,     true  },
-    { "pbaas",        "submitacceptednotarization",   &submitacceptednotarization, true },
-    { "pbaas",        "paynotarizationrewards",       &paynotarizationrewards, true  },
-    { "pbaas",        "addmergedblock",               &addmergedblock,         true  }
+    { "identity",     "registernamecommitment",       &registernamecommitment, true  },
+    { "identity",     "registeridentity",             &registeridentity,       true  },
+    { "identity",     "updateidentity",               &updateidentity,         true  },
+    { "identity",     "revokeidentity",               &revokeidentity,         true  },
+    { "identity",     "recoveridentity",              &recoveridentity,        true  },
+    { "identity",     "getidentity",                  &getidentity,            true  },
+    { "identity",     "listidentities",               &listidentities,         true  },
+    { "multichain",   "definechain",                  &definechain,            true  },
+    { "multichain",   "getdefinedchains",             &getdefinedchains,       true  },
+    { "multichain",   "getchaindefinition",           &getchaindefinition,     true  },
+    { "multichain",   "getnotarizationdata",          &getnotarizationdata,    true  },
+    { "multichain",   "getcrossnotarization",         &getcrossnotarization,   true  },
+    { "multichain",   "submitacceptednotarization",   &submitacceptednotarization, true },
+    { "multichain",   "paynotarizationrewards",       &paynotarizationrewards, true  },
+    { "multichain",   "getinitialcurrencystate",      &getinitialcurrencystate, true  },
+    { "multichain",   "getcurrencystate",             &getcurrencystate,       true  },
+    { "multichain",   "sendreserve",                  &sendreserve,            true  },
+    { "multichain",   "getpendingchaintransfers",     &getpendingchaintransfers, true  },
+    { "multichain",   "getchainexports",              &getchainexports,        true  },
+    { "multichain",   "getchainimports",              &getchainimports,        true  },
+    { "multichain",   "reserveexchange",              &reserveexchange,        true  },
+    { "multichain",   "getlatestimportsout",          &getlatestimportsout,    true  },
+    { "multichain",   "getlastimportin",              &getlastimportin,        true  },
+    { "multichain",   "refundfailedlaunch",           &refundfailedlaunch,     true  },
+    { "multichain",   "refundfailedlaunch",           &refundfailedlaunch,     true  },
+    { "multichain",   "getmergedblocktemplate",       &getmergedblocktemplate, true  },
+    { "multichain",   "addmergedblock",               &addmergedblock,         true  }
 };
 
 void RegisterPBaaSRPCCommands(CRPCTable &tableRPC)

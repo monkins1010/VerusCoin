@@ -697,7 +697,12 @@ const boost::filesystem::path GetExportDir()
 {
     namespace fs = boost::filesystem;
     fs::path path;
-    if (mapArgs.count("-exportdir")) {
+    if (!mapArgs.count("-exportdir"))
+    {
+        path = GetDataDir();
+    }
+    else
+    {
         path = fs::system_complete(mapArgs["-exportdir"]);
         if (fs::exists(path) && !fs::is_directory(path)) {
             throw std::runtime_error(strprintf("The -exportdir '%s' already exists and is not a directory", path.string()));

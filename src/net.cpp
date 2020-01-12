@@ -442,7 +442,7 @@ void CNode::PushVersion()
     else
         LogPrint("net", "send version message: version %d, blocks=%d, us=%s, peer=%d\n", PROTOCOL_VERSION, nBestHeight, addrMe.ToString(), id);
 
-    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nBestHeight + 1) >= CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3)
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nBestHeight + 1) >= CConstVerusSolutionVector::activationHeight.ACTIVATE_PBAAS)
     {
         CKeyID nodePaymentAddress;
         if (USE_EXTERNAL_PUBKEY)
@@ -1701,7 +1701,7 @@ bool BindListenPort(const CService &addrBind, string& strError, bool fWhiteliste
     {
         int nErr = WSAGetLastError();
         if (nErr == WSAEADDRINUSE)
-            strError = strprintf(_("Unable to bind to %s on this computer. Zcash is probably already running."), addrBind.ToString());
+            strError = strprintf(_("Unable to bind to %s on this computer. Verus is probably already running."), addrBind.ToString());
         else
             strError = strprintf(_("Unable to bind to %s on this computer (bind returned error %s)"), addrBind.ToString(), NetworkErrorString(nErr));
         LogPrintf("%s\n", strError);

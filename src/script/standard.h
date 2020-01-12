@@ -6,66 +6,15 @@
 #ifndef BITCOIN_SCRIPT_STANDARD_H
 #define BITCOIN_SCRIPT_STANDARD_H
 
-#include "script/interpreter.h"
 #include "uint256.h"
+#include "interpreter.h"
+#include "key.h"
 
 #include <boost/variant.hpp>
 
 #include <stdint.h>
 
-class CKeyID;
-class CScript;
-
-class CNoDestination {
-public:
-    friend bool operator==(const CNoDestination &a, const CNoDestination &b) { return true; }
-    friend bool operator<(const CNoDestination &a, const CNoDestination &b) { return true; }
-};
-
-/** A reference to a CScript: the Hash160 of its serialization (see script.h) */
-class CScriptID : public uint160
-{
-public:
-    CScriptID() : uint160() {}
-    CScriptID(const CScript& in);
-    CScriptID(const uint160& in) : uint160(in) {}
-};
-
-/** 
- * A txout script template with a specific destination. It is either:
- *  * CNoDestination: no destination set
- *  * CKeyID: TX_PUBKEYHASH destination
- *  * CScriptID: TX_SCRIPTHASH destination
- *  A CTxDestination is the internal data type encoded in a bitcoin address
- */
-typedef boost::variant<CNoDestination, CPubKey, CKeyID, CScriptID> CTxDestination;
-
-class COptCCParams
-{
-    public:
-        static const uint8_t VERSION_V1 = 1;
-        static const uint8_t VERSION_V2 = 2;
-        static const uint8_t VERSION_V3 = 3;
-
-        uint8_t version;
-        uint8_t evalCode;
-        uint8_t m, n; // for m of n sigs required, n pub keys for sigs will follow
-        std::vector<CTxDestination> vKeys;
-        std::vector<std::vector<unsigned char>> vData; // extra parameters
-
-        COptCCParams() : version(0), evalCode(0), m(0), n(0) {}
-
-        COptCCParams(uint8_t ver, uint8_t code, uint8_t _m, uint8_t _n, std::vector<CTxDestination> &vkeys, std::vector<std::vector<unsigned char>> &vdata) : 
-            version(ver), evalCode(code), m(_m), n(_n), vKeys(vkeys), vData(vdata) {}
-
-        COptCCParams(std::vector<unsigned char> &vch);
-
-        bool IsValid() const { return version == VERSION_V1 || version == VERSION_V2 || version == VERSION_V3; }
-
-        std::vector<unsigned char> AsVector() const;
-};
-
-static const unsigned int MAX_OP_RETURN_RELAY = 8192;      //! bytes
+static const unsigned int MAX_OP_RETURN_RELAY = MAX_SCRIPT_SIZE;      //! bytes
 extern unsigned nMaxDatacarrierBytes;
 
 /**
@@ -157,7 +106,15 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
 int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions);
 bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType);
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet, bool returnPubKey=false);
-bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
+bool ExtractDestinations(const CScript& scriptPubKey, 
+                         txnouttype& typeRet, 
+                         std::vector<CTxDestination>& addressRet, 
+                         int &nRequiredRet, 
+                         const CKeyStore *pKeyStore=nullptr, 
+                         bool *canSign=nullptr, 
+                         bool *canSpend=nullptr,
+                         uint32_t lastIdHeight=INT_MAX,
+                         std::map<uint160, CKey> *pPrivKeys=nullptr);
 
 CScript GetScriptForDestination(const CTxDestination& dest);
 CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
@@ -194,5 +151,6 @@ bool IsPayToCryptoCondition(const CScript &scr, COptCCParams &ccParams, T &extra
 }
 
 CTxDestination DestFromAddressHash(int scriptType, uint160& addressHash);
+CScript::ScriptType AddressTypeFromDest(const CTxDestination &dest);
 
 #endif // BITCOIN_SCRIPT_STANDARD_H

@@ -50,10 +50,10 @@ CC* CCNewThreshold(int t, std::vector<CC*> v);
 
 
 /*
- * Turn a condition into a scriptPubKey
+ * Turn a condition into a scriptPubKey or just the vector inside
  */
 CScript CCPubKey(const CC *cond);
-
+std::vector<unsigned char> CCPubKeyVec(const CC *cond);
 
 /*
  * Turn a condition into a scriptSig
@@ -68,6 +68,12 @@ CScript CCSig(const CC *cond);
  * Note: This will fail in undefined ways if the condition is missing signatures
  */
 std::vector<unsigned char> CCSigVec(const CC *cond);
+
+/*
+ * Turn a partial fulfillment that may still need more signatures into a scriptSig
+ *
+ */
+std::vector<unsigned char> CCPartialSigVec(const CC *cond);
 
 /*
  * Produces a string showing the structure of a CC condition

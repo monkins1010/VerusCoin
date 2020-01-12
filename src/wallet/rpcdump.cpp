@@ -412,8 +412,6 @@ UniValue dumpprivkey(const UniValue& params, bool fHelp)
     return EncodeSecret(vchSecret);
 }
 
-
-
 UniValue z_exportwallet(const UniValue& params, bool fHelp)
 {
     if (!EnsureWalletIsAvailable(fHelp))
@@ -456,6 +454,15 @@ UniValue dumpwallet(const UniValue& params, bool fHelp)
 	return dumpwallet_impl(params, fHelp, false);
 }
 
+// returns true IFF:
+//  the address once had transactions and now has no UTXOs
+bool IsAddressEmpty(const CKeyID &keyid)
+{
+
+    // TODO - current behavior is false -- finish
+    return false;
+}
+
 UniValue dumpwallet_impl(const UniValue& params, bool fHelp, bool fDumpZKeys)
 {
     LOCK2(cs_main, pwalletMain->cs_wallet);
@@ -471,6 +478,7 @@ UniValue dumpwallet_impl(const UniValue& params, bool fHelp, bool fDumpZKeys)
     if (exportdir.empty()) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Cannot export wallet until the verusd -exportdir option has been set");
     }
+
     std::string unclean = params[0].get_str();
     std::string clean = SanitizeFilename(unclean);
     if (clean.compare(unclean) != 0) {
@@ -486,6 +494,14 @@ UniValue dumpwallet_impl(const UniValue& params, bool fHelp, bool fDumpZKeys)
     file.open(exportfilepath.string().c_str());
     if (!file.is_open())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
+
+    // this will discard (not export) any addresses that have had UTXOs in the past and now have no UTXOs. new addresses that never had UTXOs are expected to be there for a reason
+    // and may have been given to someone for a future payment
+    bool discardEmptyAddresses = false;
+    if (params.size() > 1)
+    {
+        discardEmptyAddresses = uni_get_bool(params[1]);
+    }
 
     std::map<CKeyID, int64_t> mapKeyBirth;
     std::set<CKeyID> setKeyPool;
@@ -518,7 +534,7 @@ UniValue dumpwallet_impl(const UniValue& params, bool fHelp, bool fDumpZKeys)
         std::string strTime = EncodeDumpTime(it->first);
         std::string strAddr = EncodeDestination(keyid);
         CKey key;
-        if (pwalletMain->GetKey(keyid, key)) {
+        if (pwalletMain->GetKey(keyid, key) && !(discardEmptyAddresses && IsAddressEmpty(keyid))) {
             if (pwalletMain->mapAddressBook.count(keyid)) {
                 file << strprintf("%s %s label=%s # addr=%s\n", EncodeSecret(key), strTime, EncodeDumpString(pwalletMain->mapAddressBook[keyid].name), strAddr);
             } else if (setKeyPool.count(keyid)) {
@@ -668,7 +684,7 @@ UniValue z_importviewingkey(const UniValue& params, bool fHelp)
     if (!EnsureWalletIsAvailable(fHelp))
         return NullUniValue;
 
-    if (fHelp || params.size() < 1 || params.size() > 3)
+    if (fHelp || params.size() < 1 || params.size() > 4)
         throw runtime_error(
             "z_importviewingkey \"vkey\" ( rescan startHeight )\n"
             "\nAdds a viewing key (as returned by z_exportviewingkey) to your wallet.\n"
@@ -676,6 +692,7 @@ UniValue z_importviewingkey(const UniValue& params, bool fHelp)
             "1. \"vkey\"             (string, required) The viewing key (see z_exportviewingkey)\n"
             "2. rescan             (string, optional, default=\"whenkeyisnew\") Rescan the wallet for transactions - can be \"yes\", \"no\" or \"whenkeyisnew\"\n"
             "3. startHeight        (numeric, optional, default=0) Block height to start rescan from\n"
+            "4. zaddr               (string, optional, default=\"\") zaddr in case of importing viewing key for Sapling\n"
             "\nNote: This call can take minutes to complete if rescan is true.\n"
             "\nExamples:\n"
             "\nImport a viewing key\n"
@@ -686,6 +703,8 @@ UniValue z_importviewingkey(const UniValue& params, bool fHelp)
             + HelpExampleCli("z_importviewingkey", "\"vkey\" whenkeyisnew 30000") +
             "\nRe-import the viewing key with longer partial rescan\n"
             + HelpExampleCli("z_importviewingkey", "\"vkey\" yes 20000") +
+            "\nImport the viewing key for Sapling address\n"
+            + HelpExampleCli("z_importviewingkey", "\"vkey\" no 0 \"zaddr\"") +
             "\nAs a JSON-RPC call\n"
             + HelpExampleRpc("z_importviewingkey", "\"vkey\", \"no\"")
         );
@@ -725,14 +744,34 @@ UniValue z_importviewingkey(const UniValue& params, bool fHelp)
     if (!IsValidViewingKey(viewingkey)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid viewing key");
     }
-    // TODO: Add Sapling support. For now, return an error to the user.
-    if (boost::get<libzcash::SproutViewingKey>(&viewingkey) == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Currently, only Sprout viewing keys are supported");
-    }
-    auto vkey = boost::get<libzcash::SproutViewingKey>(viewingkey);
-    auto addr = vkey.address();
 
-    {
+    if (boost::get<libzcash::SproutViewingKey>(&viewingkey) == nullptr) {
+        if (params.size() < 4) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Missing zaddr for Sapling viewing key.");
+        }
+        string strAddress = params[3].get_str();
+        auto address = DecodePaymentAddress(strAddress);
+        if (!IsValidPaymentAddress(address)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid zaddr");
+        }
+
+        auto addr = boost::get<libzcash::SaplingPaymentAddress>(address);
+        auto ivk = boost::get<libzcash::SaplingIncomingViewingKey>(viewingkey);
+
+        if (pwalletMain->HaveSaplingIncomingViewingKey(addr)) {
+            if (fIgnoreExistingKey) {
+                return NullUniValue;
+            }
+        } else {
+            pwalletMain->MarkDirty();
+
+            if (!pwalletMain->AddSaplingIncomingViewingKey(ivk, addr)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Error adding viewing key to wallet");
+            }
+        }
+    } else {
+        auto vkey = boost::get<libzcash::SproutViewingKey>(viewingkey);
+        auto addr = vkey.address();
         if (pwalletMain->HaveSproutSpendingKey(addr)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "The wallet already contains the private key for this viewing key");
         }
@@ -749,13 +788,12 @@ UniValue z_importviewingkey(const UniValue& params, bool fHelp)
                 throw JSONRPCError(RPC_WALLET_ERROR, "Error adding viewing key to wallet");
             }
         }
-
-        // We want to scan for transactions and notes
-        if (fRescan) {
-            pwalletMain->ScanForWalletTransactions(chainActive[nRescanHeight], true);
-        }
     }
 
+    // We want to scan for transactions and notes
+    if (fRescan) {
+        pwalletMain->ScanForWalletTransactions(chainActive[nRescanHeight], true);
+    }
     return NullUniValue;
 }
 
@@ -827,12 +865,17 @@ UniValue z_exportviewingkey(const UniValue& params, bool fHelp)
     if (!IsValidPaymentAddress(address)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid zaddr");
     }
-    // TODO: Add Sapling support. For now, return an error to the user.
-    if (boost::get<libzcash::SproutPaymentAddress>(&address) == nullptr) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Currently, only Sprout zaddrs are supported");
-    }
-    auto addr = boost::get<libzcash::SproutPaymentAddress>(address);
 
+    if (boost::get<libzcash::SproutPaymentAddress>(&address) == nullptr) {
+        auto addr = boost::get<libzcash::SaplingPaymentAddress>(address);
+        libzcash::SaplingIncomingViewingKey ivk;
+        if(!pwalletMain->GetSaplingIncomingViewingKey(addr, ivk)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not hold viewing key for this zaddr");
+        }
+        return EncodeViewingKey(ivk);
+    }
+
+    auto addr = boost::get<libzcash::SproutPaymentAddress>(address);
     libzcash::SproutViewingKey vk;
     if (!pwalletMain->GetSproutViewingKey(addr, vk)) {
         libzcash::SproutSpendingKey k;
@@ -844,3 +887,4 @@ UniValue z_exportviewingkey(const UniValue& params, bool fHelp)
 
     return EncodeViewingKey(vk);
 }
+

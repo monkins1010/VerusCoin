@@ -222,21 +222,24 @@ bool AsyncRPCOperation_sendmany::main_impl() {
     bool isPureTaddrOnlyTx = (isfromtaddr_ && z_outputs_.size() == 0);
     CAmount minersFee = fee_;
 
+    uint32_t solutionVersion = CConstVerusSolutionVector::GetVersionByHeight(chainActive.Height() + 1);
+
     // When spending coinbase utxos, you can only specify a single zaddr as the change must go somewhere
     // and if there are multiple zaddrs, we don't know where to send it.
     if (isfromtaddr_) {
-        if (isSingleZaddrOutput) {
+        // if we don't need to protect coinbases, they can be included in inputs
+        if (isSingleZaddrOutput || !Params().GetConsensus().fCoinbaseMustBeProtected) {
             bool b = find_utxos(true);
             if (!b) {
-                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds, no UTXOs found for taddr from address.");
+                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds in UTXOs found for taddr from address.");
             }
         } else {
             bool b = find_utxos(false);
             if (!b) {
                 if (isMultipleZaddrOutput) {
-                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any non-coinbase UTXOs to spend. Coinbase UTXOs can only be sent to a single zaddr recipient.");
+                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any coinbase UTXOs without shielding requirements to spend. Protected coinbase UTXOs can only be sent to a single zaddr recipient.");
                 } else {
-                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any non-coinbase UTXOs to spend.");
+                    throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Could not find any coinbase UTXOs without shielding requirements to spend.");
                 }
             }
         }
@@ -348,7 +351,7 @@ bool AsyncRPCOperation_sendmany::main_impl() {
         if (isUsingBuilder_) {
             CScript scriptPubKey;
             for (auto t : t_inputs_) {
-                scriptPubKey = GetScriptForDestination(std::get<4>(t));
+                scriptPubKey = std::get<4>(t);
                 //printf("Checking new script: %s\n", scriptPubKey.ToString().c_str());
                 uint256 txid = std::get<0>(t);
                 int vout = std::get<1>(t);
@@ -413,22 +416,32 @@ bool AsyncRPCOperation_sendmany::main_impl() {
         }
 
         // Set change address if we are using transparent funds
-        // TODO: Should we just use fromtaddr_ as the change address?
+        // use fromtaddr_ if this is coming from an identity
         CReserveKey keyChange(pwalletMain);
         if (isfromtaddr_) {
             LOCK2(cs_main, pwalletMain->cs_wallet);
 
             EnsureWalletIsUnlocked();
-            CPubKey vchPubKey;
-            bool ret = keyChange.GetReservedKey(vchPubKey);
-            if (!ret) {
-                // should never fail, as we just unlocked
-                throw JSONRPCError(
-                    RPC_WALLET_KEYPOOL_RAN_OUT,
-                    "Could not generate a taddr to use as a change address");
-            }
 
-            CTxDestination changeAddr = vchPubKey.GetID();
+            CTxDestination changeAddr;
+
+            if (fromtaddr_.which() == COptCCParams::ADDRTYPE_ID)
+            {
+                changeAddr = fromtaddr_;
+            }
+            else
+            {
+                CPubKey vchPubKey;
+                bool ret = keyChange.GetReservedKey(vchPubKey);
+                if (!ret) {
+                    // should never fail, as we just unlocked
+                    throw JSONRPCError(
+                        RPC_WALLET_KEYPOOL_RAN_OUT,
+                        "Could not generate a taddr to use as a change address");
+                }
+                changeAddr = vchPubKey.GetID();
+            }
+            
             builder_.SendChangeTo(changeAddr);
         }
 
@@ -475,6 +488,7 @@ bool AsyncRPCOperation_sendmany::main_impl() {
 
             builder_.AddSaplingOutput(ovk, to, value, memo);
         }
+
 
         // Add transparent outputs
         for (auto r : t_outputs_) {
@@ -926,7 +940,7 @@ bool AsyncRPCOperation_sendmany::main_impl() {
     return true;
 }
 
-bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptCoinbase=false) 
+bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptProtectedCoinbase=false) 
 {
     std::set<CTxDestination> destinations;
     destinations.insert(fromtaddr_);
@@ -936,7 +950,7 @@ bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptCoinbase=false)
     vector<COutput> vecOutputs;
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
-    pwalletMain->AvailableCoins(vecOutputs, false, NULL, true, fAcceptCoinbase);
+    pwalletMain->AvailableCoins(vecOutputs, false, NULL, false, true, fAcceptProtectedCoinbase);
 
     BOOST_FOREACH(const COutput& out, vecOutputs) {
         CTxDestination dest;
@@ -946,6 +960,11 @@ bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptCoinbase=false)
         }
 
         if (out.nDepth < mindepth_) {
+            continue;
+        }
+
+        if (!out.tx->vout[out.i].nValue)
+        {
             continue;
         }
 
@@ -962,19 +981,9 @@ bool AsyncRPCOperation_sendmany::find_utxos(bool fAcceptCoinbase=false)
             }
         }
 
-        // By default we ignore coinbase outputs
-        // TODO: audit use of fAcceptCoinbase to ensure that when coinbase is not required to be shielded that this is skipped
-        bool isCoinbase = out.tx->IsCoinBase();
-        if (isCoinbase && fAcceptCoinbase==false) {
-            continue;
-        }
-
-        if (!ExtractDestination(scriptPubKey, dest, true))
-            continue;
-
         CAmount nValue = out.tx->vout[out.i].nValue;
         
-        SendManyInputUTXO utxo(out.tx->GetHash(), out.i, nValue, isCoinbase, dest);
+        SendManyInputUTXO utxo(out.tx->GetHash(), out.i, nValue, out.tx->IsCoinBase(), scriptPubKey);
         t_inputs_.push_back(utxo);
     }
 

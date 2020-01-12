@@ -245,6 +245,14 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
                 out.push_back(Pair("identityrecover", ""));
                 break;
 
+            case EVAL_IDENTITY_COMMITMENT:
+                out.push_back(Pair("identitycommitment", ""));
+                break;
+
+            case EVAL_IDENTITY_RESERVATION:
+                out.push_back(Pair("identityreservation", ""));
+                break;
+
             case EVAL_STAKEGUARD:
                 out.push_back(Pair("stakeguard", ""));
                 break;
@@ -1419,7 +1427,7 @@ UniValue signrawtransaction(const UniValue& params, bool fHelp)
         SignatureData sigdata;
         // Only sign SIGHASH_SINGLE if there's a corresponding output:
         if (!fHashSingle || (i < mergedTx.vout.size()))
-            ProduceSignature(MutableTransactionSignatureCreator(&keystore, &mergedTx, i, amount, nHashType), prevPubKey, sigdata, consensusBranchId);
+            ProduceSignature(MutableTransactionSignatureCreator(&keystore, &mergedTx, i, amount, prevPubKey, INT32_MAX, nHashType), prevPubKey, sigdata, consensusBranchId);
 
         // ... and merge in other signatures:
         BOOST_FOREACH(const CMutableTransaction& txv, txVariants) {

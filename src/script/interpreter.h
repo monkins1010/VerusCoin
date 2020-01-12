@@ -7,10 +7,12 @@
 #define BITCOIN_SCRIPT_INTERPRETER_H
 
 #include "script_error.h"
+#include "pbaas/crosschainrpc.h"
 #include "primitives/transaction.h"
 #include "script/cc.h"
 
 #include <vector>
+#include <map>
 #include <stdint.h>
 #include <string>
 #include <climits>
@@ -105,6 +107,176 @@ enum SigVersion
     SIGVERSION_SAPLING = 2,
 };
 
+// smart transactions are derived from crypto-conditions, but they are not the same thing. A smart transaction is described
+// along with any eval-specific parameters, as an object encoded in the COptCCParams following the OP_CHECK_CRYPTOCONDITION opcode
+// of a script. smart transactions are not encoded with ASN.1, but with standard Bitcoin serialization and an object model
+// defined in PBaaS. while as of this comment, the cryptocondition code is used to validate crypto-conditions, that is only
+// internally to determine thresholds and remain compatible with evals. The protocol contains only PBaaS serialized descriptions,
+// and the signatures contain a vector of this object, serialized in one fulfillment that gets updated for multisig.
+class CSmartTransactionSignature
+{
+public:
+    enum {
+        SIGTYPE_NONE = 0,
+        SIGTYPE_SECP256K1 = 1,
+        SIGTYPE_SECP256K1_LEN = 64,
+        SIGTYPE_FALCON = 2
+    };
+
+    uint8_t sigType;
+    std::vector<unsigned char> pubKeyData;
+    std::vector<unsigned char> signature;
+
+    CSmartTransactionSignature() : sigType(SIGTYPE_NONE) {}
+    CSmartTransactionSignature(uint8_t sType, const std::vector<unsigned char> &pkData, const std::vector<unsigned char> &sig) : sigType(sType), pubKeyData(pubKeyData), signature(sig) {}
+    CSmartTransactionSignature(uint8_t sType, const CPubKey &pk, const std::vector<unsigned char> &sig) : sigType(sType), pubKeyData(pk.begin(), pk.end()), signature(sig) {}
+    CSmartTransactionSignature(const std::vector<unsigned char> &asVector)
+    {
+        ::FromVector(asVector, *this);
+    }
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(sigType);
+        READWRITE(pubKeyData);
+        READWRITE(signature);
+    }
+
+    UniValue ToUniValue() const
+    {
+        UniValue obj(UniValue::VOBJ);
+
+        obj.push_back(Pair("signaturetype", (int)sigType));
+        obj.push_back(Pair("publickeydata", HexBytes(&pubKeyData[0], pubKeyData.size())));
+        obj.push_back(Pair("signature", HexBytes(&signature[0], signature.size())));
+        return obj;
+    }
+
+    bool IsValid()
+    {
+        return (sigType == SIGTYPE_SECP256K1 || sigType == SIGTYPE_FALCON) &&
+               CPubKey(pubKeyData).IsFullyValid();
+    }
+};
+
+class CSmartTransactionSignatures
+{
+public:
+    enum {
+        FIRST_VERSION = 1,
+        LAST_VERSION = 1,
+        VERSION = 1
+    };
+    uint8_t version;
+    uint8_t sigHashType;
+    std::map<uint160, CSmartTransactionSignature> signatures;
+
+    CSmartTransactionSignatures() : version(VERSION) {}
+    CSmartTransactionSignatures(uint8_t hashType, const std::map<uint160, CSmartTransactionSignature> &signatureMap, uint8_t ver=VERSION) : version(ver), sigHashType(hashType), signatures(signatureMap) {}
+    CSmartTransactionSignatures(const std::vector<unsigned char> &asVector)
+    {
+        ::FromVector(asVector, *this);
+    }
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(version);
+        READWRITE(sigHashType);
+        std::vector<CSmartTransactionSignature> sigVec;
+        if (ser_action.ForRead())
+        {
+            READWRITE(sigVec);
+            for (auto oneSig : sigVec)
+            {
+                if (oneSig.sigType == oneSig.SIGTYPE_SECP256K1)
+                {
+                    CPubKey pk(oneSig.pubKeyData);
+                    if (pk.IsFullyValid())
+                    {
+                        signatures[pk.GetID()] = oneSig;
+                    }
+                }
+            }
+        }
+        else
+        {
+            for (auto oneSigPair : signatures)
+            {
+                sigVec.push_back(oneSigPair.second);
+            }
+            READWRITE(sigVec);
+        }
+    }
+
+    bool AddSignature(const CSmartTransactionSignature &oneSig)
+    {
+        if (oneSig.sigType == oneSig.SIGTYPE_SECP256K1)
+        {
+            CPubKey pk(oneSig.pubKeyData);
+            if (pk.IsFullyValid())
+            {
+                signatures[pk.GetID()] = oneSig;
+		return true;
+            }
+        }
+	return false;
+    }
+
+    UniValue ToUniValue() const
+    {
+        UniValue obj(UniValue::VOBJ);
+
+        obj.push_back(Pair("version", (int)version));
+        obj.push_back(Pair("signaturehashtype", (int)sigHashType));
+        UniValue uniSigs(UniValue::VARR);
+        for (auto sig : signatures)
+        {
+            uniSigs.push_back(sig.second.ToUniValue());
+        }
+        obj.push_back(Pair("signatures", uniSigs));
+        return obj;
+    }
+
+    bool IsValid()
+    {
+        if (!(version >= FIRST_VERSION && version <= LAST_VERSION))
+        {
+            return false;
+        }
+        for (auto oneSig : signatures)
+        {
+            if (oneSig.second.sigType == oneSig.second.SIGTYPE_SECP256K1)
+            {
+                CPubKey pk(oneSig.second.pubKeyData);
+                uint160 pubKeyHash = pk.GetID();
+                //printf("pk.IsFullyValid(): %s, pk.GetID(): %s, oneSig.first: %s\n", pk.IsFullyValid() ? "true" : "false", pk.GetID().GetHex().c_str(), oneSig.first.GetHex().c_str());
+                if (!pk.IsFullyValid() || pk.GetID() != oneSig.first)
+                {
+                    return false;
+                }
+            }
+            else if (oneSig.second.sigType == oneSig.second.SIGTYPE_FALCON)
+            {
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::vector<unsigned char> AsVector()
+    {
+        return ::AsVector(*this);
+    }
+};
+
 uint256 SignatureHash(
     const CScript &scriptCode,
     const CTransaction& txTo,
@@ -140,6 +312,16 @@ public:
         return false;
     }
 
+    static std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> ExtractIDMap(const CScript &scriptPubKeyIn, const CKeyStore &keystore, uint32_t spendHeight=INT32_MAX); // use wallet
+
+    virtual void SetIDMap(const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> &map) {}
+    virtual std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> IDMap()
+    {
+        return std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>>();
+    }
+    virtual bool IsIDMapSet() const { return false; }
+    virtual bool CanValidateIDs() const { return false; }
+
     virtual ~BaseSignatureChecker() {}
 };
 
@@ -150,20 +332,34 @@ protected:
     unsigned int nIn;
     const CAmount amount;
     const PrecomputedTransactionData* txdata;
+    std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> idMap;
+    bool idMapSet;
 
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
 
 public:
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL) {}
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> *pIdMap);
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn, const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> *pIdMap);
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CScript *pScriptPubKeyIn=nullptr, const CKeyStore *pKeyStore=nullptr, uint32_t spendHeight=INT32_MAX);
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn, const CScript *pScriptPubKeyIn=nullptr, const CKeyStore *pKeyStore=nullptr, uint32_t spendHeight=INT32_MAX);
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, uint32_t consensusBranchId) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
+    void SetIDMap(const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> &map)
+    {
+        idMapSet = true;
+        idMap = map;
+    }
+    std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> IDMap()
+    {
+        return idMap;
+    }
+    bool IsIDMapSet() const { return idMapSet; }
     int CheckCryptoCondition(
         const std::vector<unsigned char>& condBin,
         const std::vector<unsigned char>& ffillBin,
         const CScript& scriptCode,
         uint32_t consensusBranchId) const;
-    virtual int CheckEvalCondition(const CC *cond) const;
+    virtual int CheckEvalCondition(const CC *cond, int fulfilled) const;
 };
 
 class MutableTransactionSignatureChecker : public TransactionSignatureChecker

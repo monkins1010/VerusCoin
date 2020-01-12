@@ -47,6 +47,7 @@
 
 #include "pbaas/pbaas.h"
 #include "pbaas/notarization.h"
+#include "pbaas/identity.h"
 #include "rpc/pbaasrpc.h"
 #include "transaction_builder.h"
 
@@ -168,7 +169,7 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int &
 
     int32_t nHeight = pindexPrev->GetHeight() + 1;
 
-    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight) >= CConstVerusSolutionVector::activationHeight.SOLUTION_VERUSV3)
+    if (CConstVerusSolutionVector::activationHeight.ActiveVersion(nHeight) >= CConstVerusSolutionVector::activationHeight.ACTIVATE_PBAAS)
     {
         // coinbase should already be finalized in the new version
         if (buildMerkle)
@@ -237,6 +238,73 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int &
     }
 }
 
+extern CWallet *pwalletMain;
+
+CPubKey GetSolutionPubKey(const std::vector<std::vector<unsigned char>> &vSolutions, txnouttype txType)
+{
+    CPubKey pk;
+
+    if (txType == TX_PUBKEY)
+    {
+        pk = CPubKey(vSolutions[0]);
+    }
+    else if(txType == TX_PUBKEYHASH)
+    {
+        // we need to have this in our wallet to get the public key
+        LOCK(pwalletMain->cs_wallet);
+        pwalletMain->GetPubKey(CKeyID(uint160(vSolutions[0])), pk);
+    }
+    else if (txType == TX_CRYPTOCONDITION)
+    {
+        if (vSolutions[0].size() == 33)
+        {
+            pk = CPubKey(vSolutions[0]);
+        }
+        else if (vSolutions[0].size() == 34 && vSolutions[0][0] == COptCCParams::ADDRTYPE_PK)
+        {
+            pk = CPubKey(std::vector<unsigned char>(vSolutions[0].begin() + 1, vSolutions[0].end()));
+        }
+        else if (vSolutions[0].size() == 20)
+        {
+            LOCK(pwalletMain->cs_wallet);
+            pwalletMain->GetPubKey(CKeyID(uint160(vSolutions[0])), pk);
+        }
+        else if (vSolutions[0].size() == 21 && vSolutions[0][0] == COptCCParams::ADDRTYPE_ID)
+        {
+            // destination is an identity, see if we can get its first public key
+            std::pair<CIdentityMapKey, CIdentityMapValue> identity;
+
+            if (pwalletMain->GetIdentity(CIdentityID(uint160(std::vector<unsigned char>(vSolutions[0].begin() + 1, vSolutions[0].end()))), identity) && 
+                identity.second.IsValidUnrevoked() && 
+                identity.second.primaryAddresses.size())
+            {
+                CPubKey pkTmp = boost::apply_visitor<GetPubKeyForPubKey>(GetPubKeyForPubKey(), identity.second.primaryAddresses[0]);
+                if (pkTmp.IsValid())
+                {
+                    pk = pkTmp;
+                }
+                else
+                {
+                    LOCK(pwalletMain->cs_wallet);
+                    pwalletMain->GetPubKey(CKeyID(GetDestinationID(identity.second.primaryAddresses[0])), pk);
+                }
+            }
+        }
+    }
+    return pk;
+}
+
+CPubKey GetScriptPublicKey(const CScript &scriptPubKey)
+{
+    txnouttype typeRet;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    if (Solver(scriptPubKey, typeRet, vSolutions))
+    {
+        return GetSolutionPubKey(vSolutions, typeRet);
+    }
+    return CPubKey();
+}
+
 CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _scriptPubKeyIn, int32_t gpucount, bool isStake)
 {
     CScript scriptPubKeyIn(_scriptPubKeyIn);
@@ -245,13 +313,14 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
     // mining reward based on its weight relative to the total
     std::vector<pair<int, CScript>> minerOutputs = scriptPubKeyIn.size() ? std::vector<pair<int, CScript>>({make_pair((int)1, scriptPubKeyIn)}) : std::vector<pair<int, CScript>>();
 
-    // TODO: when we accept a parameter of the minerOutputs vector, remove this comment but not the check
     CTxDestination firstDestination;
     if (!(scriptPubKeyIn.size() && ConnectedChains.SetLatestMiningOutputs(minerOutputs, firstDestination) || isStake))
     {
-        fprintf(stderr,"%s: Must have valid miner outputs, including script with valid PK or PKH destination.\n", __func__);
+        fprintf(stderr,"%s: Must have valid miner outputs, including script with valid PK, PKH, or Verus ID destination.\n", __func__);
         return NULL;
     }
+
+    CPubKey pk;
 
     if (minerOutputs.size())
     {
@@ -265,9 +334,8 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
                 return NULL;
             }
         }
+        pk = GetScriptPublicKey(minerOutputs[0].second);
     }
-
-    CPubKey pk = boost::apply_visitor<GetPubKeyForPubKey>(GetPubKeyForPubKey(), firstDestination);
 
     uint64_t deposits; int32_t isrealtime,kmdheight; uint32_t blocktime;
     //fprintf(stderr,"create new block\n");
@@ -309,6 +377,9 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
     unsigned int nBlockMaxSize = GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
     // Limit to betweeen 1K and MAX_BLOCK_SIZE-1K for sanity:
     nBlockMaxSize = std::max((unsigned int)1000, std::min((unsigned int)(MAX_BLOCK_SIZE-1000), nBlockMaxSize));
+
+    unsigned int nMaxIDSize = nBlockMaxSize / 2;
+    unsigned int nCurrentIDSize = 0;
     
     // How much of the block should be dedicated to high-priority transactions,
     // included regardless of the fees they pay
@@ -333,8 +404,6 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
     CTransaction cheatTx;
     boost::optional<CTransaction> cheatSpend;
     uint256 cbHash;
-
-    extern CWallet *pwalletMain;
 
     CBlockIndex* pindexPrev = 0;
     {
@@ -522,20 +591,8 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
             if (!minerOutputs.size())
             {
                 minerOutputs.push_back(make_pair((int)1, txStaked.vout[0].scriptPubKey));
-                txnouttype typeRet;
-                std::vector<std::vector<unsigned char>> vSolutions;
-                if (Solver(txStaked.vout[0].scriptPubKey, typeRet, vSolutions))
-                {
-                    if (typeRet == TX_PUBKEY)
-                    {
-                        pk = CPubKey(vSolutions[0]);
-                    }
-                    else
-                    {
-                        pwalletMain->GetPubKey(CKeyID(uint160(vSolutions[0])), pk);
-                    }
-                }
-                ConnectedChains.SetLatestMiningOutputs(minerOutputs, firstDestination);
+                pk = GetScriptPublicKey(txStaked.vout[0].scriptPubKey);
+                ExtractDestination(minerOutputs[0].second, firstDestination);
             }
         }
 
@@ -1079,6 +1136,14 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
                 {
                     nTotalIn += rtxd.nativeIn;
                     nTotalReserveIn += rtxd.reserveIn;
+                    if (rtxd.IsIdentity() && CNameReservation(tx).IsValid())
+                    {
+                        nCurrentIDSize += GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
+                        if (nCurrentIDSize > nMaxIDSize)
+                        {
+                            continue;
+                        }
+                    }
                 }
                 BOOST_FOREACH(const CTxIn& txin, tx.vin)
                 {
@@ -1257,7 +1322,7 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& _
             // create only contains transactions that are valid in new blocks.
             CValidationState state;
             PrecomputedTransactionData txdata(tx);
-            if (!ContextualCheckInputs(tx, state, view, true, MANDATORY_SCRIPT_VERIFY_FLAGS, true, txdata, Params().GetConsensus(), consensusBranchId))
+            if (!ContextualCheckInputs(tx, state, view, nHeight, true, MANDATORY_SCRIPT_VERIFY_FLAGS, true, txdata, Params().GetConsensus(), consensusBranchId))
             {
                 //fprintf(stderr,"context failure\n");
                 continue;
@@ -1988,7 +2053,7 @@ static bool ProcessBlockFound(CBlock* pblock)
 #endif
     //fprintf(stderr,"process new block\n");
 
-    // Process this block the same as if we had received it from another node
+    // Process this block (almost) the same as if we had received it from another node
     CValidationState state;
     if (!ProcessNewBlock(1, chainActive.LastTip()->GetHeight()+1, state, Params(), NULL, pblock, true, NULL))
         return error("VerusMiner: ProcessNewBlock, block not accepted");
@@ -2312,9 +2377,6 @@ void static BitcoinMiner_noeq()
     try {
         printf("Mining %s with %s\n", ASSETCHAINS_SYMBOL, ASSETCHAINS_ALGORITHMS[ASSETCHAINS_ALGO]);
 
-        // v2 hash writer
-        CVerusHashV2bWriter ss2 = CVerusHashV2bWriter(SER_GETHASH, PROTOCOL_VERSION);
-
         while (true)
         {
             miningTimer.stop();
@@ -2393,8 +2455,18 @@ void static BitcoinMiner_noeq()
             bool mergeMining = false;
             savebits = pblock->nBits;
 
-            bool verusHashV2 = pblock->nVersion == CBlockHeader::VERUS_V2;
-            bool verusSolutionV3 = CConstVerusSolutionVector::Version(pblock->nSolution) == CActivationHeight::SOLUTION_VERUSV3;
+            uint32_t solutionVersion = CConstVerusSolutionVector::Version(pblock->nSolution);
+            if (pblock->nVersion != CBlockHeader::VERUS_V2)
+            {
+                // must not be in sync
+                printf("Mining on incorrect block version.\n");
+                sleep(2);
+                continue;
+            }
+            bool verusSolutionPBaaS = solutionVersion >= CActivationHeight::ACTIVATE_PBAAS;
+
+            // v2 hash writer with adjustments for the current height
+            CVerusHashV2bWriter ss2 = CVerusHashV2bWriter(SER_GETHASH, PROTOCOL_VERSION, solutionVersion);
 
             if ( ASSETCHAINS_SYMBOL[0] != 0 )
             {
@@ -2411,11 +2483,11 @@ void static BitcoinMiner_noeq()
                 }
             }
 
-            // this builds the Merkle tree and sets our easiest target
-            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, false, &savebits);
+            // set our easiest target, if V3+, no need to rebuild the merkle tree
+            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, verusSolutionPBaaS ? false : true, &savebits);
 
             // update PBaaS header
-            if (verusSolutionV3)
+            if (verusSolutionPBaaS)
             {
                 if (!IsVerusActive() && ConnectedChains.IsVerusPBaaSAvailable())
                 {
@@ -2483,14 +2555,6 @@ void static BitcoinMiner_noeq()
             uint64_t count;
             uint64_t hashesToGo = 0;
             uint64_t totalDone = 0;
-
-            if (!verusHashV2)
-            {
-                // must not be in sync
-                printf("Mining on incorrect block version.\n");
-                sleep(2);
-                continue;
-            }
 
             int64_t subsidy = (int64_t)(pblock->vtx[0].vout[0].nValue);
             count = ((ASSETCHAINS_NONCEMASK[ASSETCHAINS_ALGO] >> 3) + 1) / ASSETCHAINS_HASHESPERROUND[ASSETCHAINS_ALGO];
@@ -2574,7 +2638,7 @@ void static BitcoinMiner_noeq()
                             // pickup/remove any new/deleted headers
                             if (ConnectedChains.dirty || (pblock->NumPBaaSHeaders() < ConnectedChains.mergeMinedChains.size() + 1))
                             {
-                                IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, false, &savebits);
+                                IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, verusSolutionPBaaS ? false : true, &savebits);
 
                                 hashTarget.SetCompact(savebits);
                                 uintTarget = ArithToUint256(hashTarget);
@@ -2585,7 +2649,7 @@ void static BitcoinMiner_noeq()
                             uint64_t start = i * hashesToGo + totalDone;
                             hashesToGo -= totalDone;
 
-                            if (verusSolutionV3)
+                            if (verusSolutionPBaaS)
                             {
                                 // mine on canonical header for merge mining
                                 CPBaaSPreHeader savedHeader(*pblock);

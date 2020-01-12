@@ -33,7 +33,7 @@ const CScriptExt &CScriptExt::AddPayToPubKeyHash(const CKeyID &key) const
 const CScriptExt &CScriptExt::OpReturnScript(const vector<unsigned char> &data, unsigned char opretType) const
 {
     ((CScript *)this)->clear();
-    if (data.size() < MAX_SCRIPT_ELEMENT_SIZE)
+    if (data.size() < CScript::MAX_SCRIPT_ELEMENT_SIZE)
     {
         vector<unsigned char> scratch = vector<unsigned char>(data);
         scratch.insert(scratch.begin(), opretType);
@@ -70,6 +70,7 @@ const CScriptExt &CScriptExt::AddCheckLockTimeVerify(int64_t unlocktime) const
         *((CScript *)this) << OP_DROP;
         return *this;
     }
+    return *this;
 }
 
 // combined CLTV script and P2PKH

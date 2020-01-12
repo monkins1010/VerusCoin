@@ -29,7 +29,7 @@ using namespace libzcash;
 typedef std::tuple<std::string, CAmount, std::string> SendManyRecipient;
 
 // Input UTXO is a tuple (quadruple) of txid, vout, amount, coinbase)
-typedef std::tuple<uint256, int, CAmount, bool, CTxDestination> SendManyInputUTXO;
+typedef std::tuple<uint256, int, CAmount, bool, CScript> SendManyInputUTXO;
 
 // Input JSOP is a tuple of JSOutpoint, note and amount
 typedef std::tuple<JSOutPoint, SproutNote, CAmount> SendManyInputJSOP;
@@ -111,7 +111,7 @@ private:
     void add_taddr_change_output_to_tx(CReserveKey& keyChange, CAmount amount);
     void add_taddr_outputs_to_tx();
     bool find_unspent_notes();
-    bool find_utxos(bool fAcceptCoinbase);
+    bool find_utxos(bool fAcceptProtectedCoinbase);
     std::array<unsigned char, ZC_MEMO_SIZE> get_memo_from_hex_string(std::string s);
     bool main_impl();
 

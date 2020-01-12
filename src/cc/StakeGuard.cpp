@@ -15,6 +15,9 @@
 #include "hash.h"
 #include "key_io.h"
 
+#include <vector>
+#include <map>
+
 #include "streams.h"
 
 extern int32_t VERUS_MIN_STAKEAGE;
@@ -166,10 +169,16 @@ bool ValidateStakeTransaction(const CTransaction &stakeTx, CStakeParams &stakePa
                     {
                         auto consensusBranchId = CurrentEpochBranchId(stakeParams.blkHeight, Params().GetConsensus());
 
+                        std::map<uint160, pair<int, std::vector<std::vector<unsigned char>>>> idAddressMap;
+                        if (validateSig)
+                        {
+                            idAddressMap = ServerTransactionSignatureChecker::ExtractIDMap(srcTx.vout[stakeTx.vin[0].prevout.n].scriptPubKey, stakeParams.blkHeight);
+                        }
+
                         if (!validateSig || VerifyScript(stakeTx.vin[0].scriptSig, 
                                             srcTx.vout[stakeTx.vin[0].prevout.n].scriptPubKey, 
                                             MANDATORY_SCRIPT_VERIFY_FLAGS,
-                                            TransactionSignatureChecker(&stakeTx, (uint32_t)0, srcTx.vout[stakeTx.vin[0].prevout.n].nValue),
+                                            TransactionSignatureChecker(&stakeTx, (uint32_t)0, srcTx.vout[stakeTx.vin[0].prevout.n].nValue, &idAddressMap),
                                             consensusBranchId))
                         {
                             return true;
@@ -359,7 +368,7 @@ int IsCCFulfilled(CC *cc, ccFulfillmentCheck *ctx)
     return ctx->vCount[0];
 }
 
-bool StakeGuardValidate(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool StakeGuardValidate(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled)
 {
     // WARNING: this has not been tested combined with time locks
     // validate this spend of a transaction with it being past any applicable time lock and one of the following statements being true:
@@ -441,8 +450,7 @@ bool StakeGuardValidate(struct CCcontract_info *cp, Eval* eval, const CTransacti
     }
     if (!(signedByFirstKey || validCheat))
     {
-        eval->Error("error reading coinbase or spending proof invalid\n");
-        return false;
+        return eval->Error("error reading coinbase or spending proof invalid\n");
     }
     else return true;
 }

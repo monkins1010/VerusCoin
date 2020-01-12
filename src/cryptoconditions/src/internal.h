@@ -48,6 +48,8 @@ typedef struct CCType {
     void (*toJSON)(const CC *cond, cJSON *params);
     CC *(*fromFulfillment)(const Fulfillment_t *ffill);
     Fulfillment_t *(*toFulfillment)(const CC *cond);
+    CC *(*fromPartialFulfillment)(const Fulfillment_t *ffill);
+    Fulfillment_t *(*toPartialFulfillment)(const CC *cond);
     int (*isFulfilled)(const CC *cond);
     void (*free)(struct CC *cond);
 } CCType;
@@ -68,7 +70,9 @@ CC *mkAnon(const Condition_t *asnCond);
 void asnCondition(const CC *cond, Condition_t *asn);
 Condition_t *asnConditionNew(const CC *cond);
 Fulfillment_t *asnFulfillmentNew(const CC *cond);
+Fulfillment_t *asnPartialFulfillmentNew(const CC *cond);
 struct CC *fulfillmentToCC(Fulfillment_t *ffill);
+struct CC *partialFulfillmentToCC(Fulfillment_t *ffill);
 struct CCType *getTypeByAsnEnum(Condition_PR present);
 
 

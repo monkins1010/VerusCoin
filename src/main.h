@@ -142,7 +142,8 @@ typedef boost::unordered_map<uint256, CBlockIndex*, BlockHasher> BlockMap;
 extern BlockMap mapBlockIndex;
 extern uint64_t nLastBlockTx;
 extern uint64_t nLastBlockSize;
-extern const std::string strMessageMagic;
+extern const std::string verusDataSignaturePrefix;
+extern const std::string verusDataSignaturePrefix;
 extern CWaitableCriticalSection csBestBlock;
 extern CConditionVariable cvBlockChange;
 extern bool fExperimentalMode;
@@ -359,7 +360,7 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& ma
  * This does not modify the UTXO set. If pvChecks is not NULL, script checks are pushed onto it
  * instead of being performed inline.
  */
-bool ContextualCheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &view, bool fScriptChecks,
+bool ContextualCheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &view, uint32_t spendHeight, bool fScriptChecks,
                            unsigned int flags, bool cacheStore, PrecomputedTransactionData& txdata,
                            const Consensus::Params& consensusParams, uint32_t consensusBranchId,
                            std::vector<CScriptCheck> *pvChecks = NULL);
@@ -390,7 +391,7 @@ namespace Consensus {
  * This does not modify the UTXO set. This does not check scripts and sigs.
  * Preconditions: tx.IsCoinBase() is false.
  */
-bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight, const Consensus::Params& consensusParams);
+bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs, uint32_t nSpendHeight, const Consensus::Params& consensusParams);
 
 } // namespace Consensus
 
@@ -437,6 +438,7 @@ private:
     uint32_t consensusBranchId;
     ScriptError error;
     PrecomputedTransactionData *txdata;
+    std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> idMap;
 
 public:
     CScriptCheck(): amount(0), ptxTo(0), nIn(0), nFlags(0), cacheStore(false), consensusBranchId(0), error(SCRIPT_ERR_UNKNOWN_ERROR) {}
@@ -456,7 +458,10 @@ public:
         std::swap(consensusBranchId, check.consensusBranchId);
         std::swap(error, check.error);
         std::swap(txdata, check.txdata);
+        std::swap(idMap, check.idMap);
     }
+
+    void SetIDMap(const std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> &map) { idMap = map; }
 
     ScriptError GetScriptError() const { return error; }
 };

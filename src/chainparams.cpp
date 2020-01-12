@@ -93,7 +93,7 @@ public:
         strNetworkID = "main";
         strCurrencyUnits = "KMD";
         bip44CoinType = 133; // As registered in https://github.com/satoshilabs/slips/blob/master/slip-0044.md (ZCASH, should be VRSC)
-        consensus.fCoinbaseMustBeProtected = false; // true this is only true wuth Verus and enforced after block 12800
+        consensus.fCoinbaseMustBeProtected = false; // true this is only true wuth Verus and enforced after block 12800 (enforcement ending at solution V3)
         consensus.nSubsidySlowStartInterval = 20000;
         consensus.nPreBlossomSubsidyHalvingInterval = Consensus::PRE_BLOSSOM_HALVING_INTERVAL;
         consensus.nPostBlossomSubsidyHalvingInterval = Consensus::POST_BLOSSOM_HALVING_INTERVAL;
@@ -183,6 +183,7 @@ public:
         // TODO: set up bootstrapping for mainnet
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,60);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,85);
+        base58Prefixes[IDENTITY_ADDRESS] = std::vector<unsigned char>(1,102);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,188);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x88)(0xB2)(0x1E).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x88)(0xAD)(0xE4).convert_to_container<std::vector<unsigned char> >();
@@ -270,12 +271,17 @@ void *chainparams_commandline(void *ptr)
             mainParams.consensus.nLwmaPOSAjustedWeight = 46531;
         }
 
+        // this includes VRSCTEST, unlike the checkpoints and changes below
+        if (_IsVerusActive())
+        {
+            mainParams.consensus.fCoinbaseMustBeProtected = true;
+        }
+
         // only require coinbase protection on Verus from the Komodo family of coins
         if (strcmp(ASSETCHAINS_SYMBOL,"VRSC") == 0)
         {
             mainParams.consensus.vUpgrades[Consensus::UPGRADE_SAPLING].nActivationHeight = 227520;
             mainParams.consensus.vUpgrades[Consensus::UPGRADE_OVERWINTER].nActivationHeight = 227520;
-            mainParams.consensus.fCoinbaseMustBeProtected = true;
             checkpointData = //(Checkpoints::CCheckpointData)
                 {
                     boost::assign::map_list_of
@@ -541,6 +547,7 @@ public:
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,0);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,5);
+        base58Prefixes[IDENTITY_ADDRESS] = std::vector<unsigned char>(1,102);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,128);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x35)(0x87)(0xCF).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
@@ -694,6 +701,7 @@ public:
         // These prefixes are the same as the testnet prefixes
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,60);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,85);
+        base58Prefixes[IDENTITY_ADDRESS] = std::vector<unsigned char>(1,102);
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,188);
         //base58Prefixes[PUBKEY_ADDRESS]     = {0x1D,0x25};
         //base58Prefixes[SCRIPT_ADDRESS]     = {0x1C,0xBA};
@@ -744,6 +752,18 @@ const CChainParams &Params() {
         return mainParams;
     }
     return *pCurrentParams;
+}
+
+void DisableCoinbaseMustBeProtected()
+{
+    CChainParams &curParams = pCurrentParams ? *pCurrentParams : mainParams;
+    curParams.DisableCoinbaseMustBeProtected();
+}
+
+void EnableCoinbaseMustBeProtected()
+{
+    CChainParams &curParams = pCurrentParams ? *pCurrentParams : mainParams;
+    curParams.EnableCoinbaseMustBeProtected();
 }
 
 bool AreParamsInitialized()

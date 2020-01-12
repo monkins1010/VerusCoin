@@ -50,7 +50,7 @@ UniValue assetchainproof(const UniValue& params, bool fHelp)
 
 UniValue crosschainproof(const UniValue& params, bool fHelp)
 {
-    
+    return NullUniValue;
 }
 
 

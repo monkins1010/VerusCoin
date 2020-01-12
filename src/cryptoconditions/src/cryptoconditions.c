@@ -86,6 +86,11 @@ char *cc_conditionUri(const CC *cond) {
 
 ConditionTypes_t asnSubtypes(uint32_t mask) {
     ConditionTypes_t types;
+    types._asn_ctx.context = 0;
+    types._asn_ctx.left = 0;
+    types._asn_ctx.phase = 0;
+    types._asn_ctx.ptr = 0;
+    types._asn_ctx.step = 0;
     uint8_t buf[4] = {0,0,0,0};
     int maxId = 0;
 
@@ -115,10 +120,10 @@ uint32_t fromAsnSubtypes(const ConditionTypes_t types) {
 }
 
 
-size_t cc_conditionBinary(const CC *cond, unsigned char *buf) {
+size_t cc_conditionBinary(const CC *cond, unsigned char *buf, int bufLen) {
     Condition_t *asn = calloc(1, sizeof(Condition_t));
     asnCondition(cond, asn);
-    asn_enc_rval_t rc = der_encode_to_buffer(&asn_DEF_Condition, asn, buf, 1000);
+    asn_enc_rval_t rc = der_encode_to_buffer(&asn_DEF_Condition, asn, buf, bufLen);
     if (rc.encoded == -1) {
         fprintf(stderr, "CONDITION NOT ENCODED\n");
         return 0;
@@ -130,6 +135,26 @@ size_t cc_conditionBinary(const CC *cond, unsigned char *buf) {
 
 size_t cc_fulfillmentBinary(const CC *cond, unsigned char *buf, size_t length) {
     Fulfillment_t *ffill = asnFulfillmentNew(cond);
+    if (!ffill)
+    {
+        return 0;
+    }
+    asn_enc_rval_t rc = der_encode_to_buffer(&asn_DEF_Fulfillment, ffill, buf, length);
+    if (rc.encoded == -1) {
+        fprintf(stderr, "FULFILLMENT NOT ENCODED\n");
+        return 0;
+    }
+    ASN_STRUCT_FREE(asn_DEF_Fulfillment, ffill);
+    return rc.encoded;
+}
+
+
+size_t cc_partialFulfillmentBinary(const CC *cond, unsigned char *buf, size_t length) {
+    Fulfillment_t *ffill = asnPartialFulfillmentNew(cond);
+    if (!ffill)
+    {
+        return 0;
+    }
     asn_enc_rval_t rc = der_encode_to_buffer(&asn_DEF_Fulfillment, ffill, buf, length);
     if (rc.encoded == -1) {
         fprintf(stderr, "FULFILLMENT NOT ENCODED\n");
@@ -166,6 +191,11 @@ Fulfillment_t *asnFulfillmentNew(const CC *cond) {
 }
 
 
+Fulfillment_t *asnPartialFulfillmentNew(const CC *cond) {
+    return cond->type->toPartialFulfillment(cond);
+}
+
+
 unsigned long cc_getCost(const CC *cond) {
     return cond->type->getCost(cond);
 }
@@ -188,6 +218,16 @@ CC *fulfillmentToCC(Fulfillment_t *ffill) {
         return 0;
     }
     return type->fromFulfillment(ffill);
+}
+
+
+CC *partialFulfillmentToCC(Fulfillment_t *ffill) {
+    CCType *type = getTypeByAsnEnum(ffill->present);
+    if (!type) {
+        fprintf(stderr, "Unknown fulfillment type: %i\n", ffill->present);
+        return 0;
+    }
+    return type->fromPartialFulfillment(ffill);
 }
 
 
@@ -235,10 +275,65 @@ int cc_readFulfillmentBinaryExt(const unsigned char *ffill_bin, size_t ffill_bin
     }
     if (rc.encoded != ffill_bin_len || 0 != memcmp(ffill_bin, buf, rc.encoded)) {
         error = (rc.encoded == ffill_bin_len) ? -3 : -2;
+
+        printf("Re-encoded fulfillment does not match: \n");
+        for (int i = 0; i < rc.encoded; i++)
+        {
+            printf("%02X", *(buf + i));
+        }
+        printf("\n");
+        for (int i = 0; i < ffill_bin_len; i++)
+        {
+            printf("%02X", *(ffill_bin + i));
+        }
+        printf("\n");
+
         goto end;
     }
     
     *ppcc = fulfillmentToCC(ffill);
+end:
+    free(buf);
+    if (ffill) ASN_STRUCT_FREE(asn_DEF_Fulfillment, ffill);
+    return error;
+}
+
+int cc_readPartialFulfillmentBinaryExt(const unsigned char *ffill_bin, size_t ffill_bin_len, CC **ppcc) {
+
+    int error = 0;
+    unsigned char *buf = calloc(1,ffill_bin_len);
+    Fulfillment_t *ffill = 0;
+    asn_dec_rval_t rval = ber_decode(0, &asn_DEF_Fulfillment, (void **)&ffill, ffill_bin, ffill_bin_len);
+    if (rval.code != RC_OK) {
+        error = rval.code;
+        goto end;
+    }
+    // Do malleability check
+    asn_enc_rval_t rc = der_encode_to_buffer(&asn_DEF_Fulfillment, ffill, buf, ffill_bin_len);
+    if (rc.encoded == -1) {
+        fprintf(stderr, "FULFILLMENT NOT ENCODED\n");
+        error = -1;
+        goto end;
+    }
+    if (rc.encoded != ffill_bin_len || 0 != memcmp(ffill_bin, buf, rc.encoded)) {
+        error = (rc.encoded == ffill_bin_len) ? -3 : -2;
+
+        printf("Re-encoded fulfillment does not match: \n");
+        for (int i = 0; i < rc.encoded; i++)
+        {
+            printf("%02X", *(buf + i));
+        }
+        printf("\n");
+        for (int i = 0; i < ffill_bin_len; i++)
+        {
+            printf("%02X", *(ffill_bin + i));
+        }
+        printf("\n");
+
+        goto end;
+    }
+    
+    *ppcc = partialFulfillmentToCC(ffill);
 end:
     free(buf);
     if (ffill) ASN_STRUCT_FREE(asn_DEF_Fulfillment, ffill);
@@ -256,15 +351,16 @@ int cc_visit(CC *cond, CCVisitor visitor) {
 int cc_verify(const struct CC *cond, const unsigned char *msg, size_t msgLength, int doHashMsg,
               const unsigned char *condBin, size_t condBinLength,
               VerifyEval verifyEval, void *evalContext, int checkSig) {
-    unsigned char targetBinary[1000];
+    unsigned char targetBinary[2000];
     //fprintf(stderr,"in cc_verify cond.%p msg.%p[%d] dohash.%d condbin.%p[%d]\n",cond,msg,(int32_t)msgLength,doHashMsg,condBin,(int32_t)condBinLength);
-    const size_t binLength = cc_conditionBinary(cond, targetBinary);
+    const size_t binLength = cc_conditionBinary(cond, targetBinary, 2000);
 
     if (0 != memcmp(condBin, targetBinary, binLength)) {
         fprintf(stderr,"cc_verify error A\n");
         return 0;
     }
-    if (!cc_ed25519VerifyTree(cond, msg, msgLength)) {
+
+    if (checkSig && !cc_ed25519VerifyTree(cond, msg, msgLength)) {
         fprintf(stderr,"cc_verify error B\n");
         return 0;
     }
@@ -273,15 +369,13 @@ int cc_verify(const struct CC *cond, const unsigned char *msg, size_t msgLength,
     if (doHashMsg) sha256(msg, msgLength, msgHash);
     else memcpy(msgHash, msg, 32);
 
-    // TODO:PBAAS this needs to be improved, to validate the signature,
-    // and before release to finish validation of signature hash before checking the eval
     if (checkSig && !cc_secp256k1VerifyTreeMsg32(cond, msgHash)) {
         fprintf(stderr,"cc_verify error C %d\n", cc_secp256k1VerifyTreeMsg32(cond, msgHash));
         return 0;
     }
 
     if (!cc_verifyEval(cond, verifyEval, evalContext)) {
-        fprintf(stderr,"cc_verify error D\n");
+        //fprintf(stderr,"cc_verify error D\n");
         return 0;
     }
     return 1;

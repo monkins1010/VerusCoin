@@ -143,6 +143,9 @@ public:
     bool WriteWatchOnly(const CScript &script);
     bool EraseWatchOnly(const CScript &script);
 
+    bool WriteIdentity(const CIdentityMapKey &mapKey, const CIdentityMapValue &id);
+    bool EraseIdentity(const CIdentityMapKey &mapKey);
+
     bool WriteBestBlock(const CBlockLocator& locator);
     bool ReadBestBlock(CBlockLocator& locator);
 

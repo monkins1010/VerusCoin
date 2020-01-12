@@ -14,23 +14,71 @@
  * 
  */
 #include "pbaas/identity.h"
+
+#include "boost/algorithm/string.hpp"
+#include "script/standard.h"
 #include "script/cc.h"
 #include "cc/CCinclude.h"
+#include "pbaas/pbaas.h"
+#include "pbaas/reserves.h"
+#include "main.h"
 
 extern CTxMemPool mempool;
+
+CCommitmentHash::CCommitmentHash(const CTransaction &tx)
+{
+    for (auto txOut : tx.vout)
+    {
+        COptCCParams p;
+        if (txOut.scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_COMMITMENT && p.vData.size())
+        {
+            ::FromVector(p.vData[0], *this);
+            break;
+        }
+    }
+}
+
+UniValue CNameReservation::ToUniValue() const
+{
+    UniValue ret(UniValue::VOBJ);
+    ret.push_back(Pair("name", name));
+    ret.push_back(Pair("salt", salt.GetHex()));
+    ret.push_back(Pair("referral", referral.IsNull() ? "" : EncodeDestination(referral)));
+
+    if (IsVerusActive())
+    {
+        ret.push_back(Pair("parent", ""));
+        ret.push_back(Pair("nameid", EncodeDestination(DecodeDestination(name + "@"))));
+    }
+    else
+    {
+        ret.push_back(Pair("parent", ConnectedChains.ThisChain().name));
+        ret.push_back(Pair("nameid", EncodeDestination(DecodeDestination(name + "." + ConnectedChains.ThisChain().name + "@"))));
+    }
+
+    return ret;
+}
 
 CPrincipal::CPrincipal(const UniValue &uni)
 {
     nVersion = uni_get_int(find_value(uni, "version"));
+    if (nVersion == VERSION_INVALID)
+    {
+        nVersion = VERSION_CURRENT;
+    }
     flags = uni_get_int(find_value(uni, "flags"));
-    UniValue primaryAddressesUni = find_value(uni, "primaryAddresses");
+    UniValue primaryAddressesUni = find_value(uni, "primaryaddresses");
     if (primaryAddressesUni.isArray())
     {
         for (int i = 0; i < primaryAddressesUni.size(); i++)
         {
             try
             {
-                primaryAddresses.push_back(DecodeDestination(uni_get_str(primaryAddressesUni[i])));
+                CTxDestination dest = DecodeDestination(uni_get_str(primaryAddressesUni[i]));
+                if (dest.which() == COptCCParams::ADDRTYPE_PK || dest.which() == COptCCParams::ADDRTYPE_PKH)
+                {
+                    primaryAddresses.push_back(dest);
+                }
             }
             catch (const std::exception &e)
             {
@@ -41,7 +89,7 @@ CPrincipal::CPrincipal(const UniValue &uni)
         }
     }
 
-    minSigs = uni_get_int(find_value(uni, "minimumtransparent"));
+    minSigs = uni_get_int(find_value(uni, "minimumsignatures"));
 }
 
 UniValue CPrincipal::ToUniValue() const
@@ -55,44 +103,64 @@ UniValue CPrincipal::ToUniValue() const
     {
         primaryAddressesUni.push_back(EncodeDestination(primaryAddresses[i]));
     }
-    obj.push_back(Pair("primaryAddresses", primaryAddressesUni));
-    obj.push_back(Pair("minimumtransparent", minSigs));
+    obj.push_back(Pair("primaryaddresses", primaryAddressesUni));
+    obj.push_back(Pair("minimumsignatures", minSigs));
     return obj;
 }
 
 CIdentity::CIdentity(const UniValue &uni) : CPrincipal(uni)
 {
-    name = uni_get_int(find_value(uni, "name"));
-    UniValue namesUni = find_value(uni, "names");
-    if (namesUni.isArray())
+    parent = uint160(GetDestinationID(DecodeDestination(uni_get_str(find_value(uni, "parent")))));
+    name = CleanName(uni_get_str(find_value(uni, "name")), parent);
+
+    UniValue hashesUni = find_value(uni, "contentmap");
+    if (hashesUni.isObject())
     {
-        for (int i = 0; i < namesUni.size(); i++)
+        std::vector<std::string> keys = hashesUni.getKeys();
+        std::vector<UniValue> values = hashesUni.getValues();
+        for (int i = 0; i < keys.size(); i++)
         {
             try
             {
-                names.push_back(uni_get_str(namesUni[i]));
+                std::vector<unsigned char> vch(ParseHex(keys[i]));
+                uint160 key;
+                if (vch.size() == 20 && !((key = uint160(vch)).IsNull() || i >= values.size()))
+                {
+                    contentMap[key] = uint256S(uni_get_str(values[i]));
+                }
+                else
+                {
+                    nVersion = VERSION_INVALID;
+                }
             }
             catch (const std::exception &e)
             {
-                printf("%s: name is not string %s\n", __func__, namesUni[i].write().c_str());
-                LogPrintf("%s: name is not string %s\n", __func__, namesUni[i].write().c_str());
                 nVersion = VERSION_INVALID;
+            }
+            if (nVersion == VERSION_INVALID)
+            {
+                printf("%s: contentmap entry is not valid keys: %s, values: %s\n", __func__, keys[i].c_str(), values[i].write().c_str());
+                LogPrintf("%s: contentmap entry is not valid keys: %s, values: %s\n", __func__, keys[i].c_str(), values[i].write().c_str());
+                break;
             }
         }
     }
-    revocationAuthority = uint160(GetDestinationID(DecodeDestination(uni_get_str(uni, "revocationauthorityid"))));
-    recoveryAuthority = uint160(GetDestinationID(DecodeDestination(uni_get_str(uni, "recoveryauthorityid"))));
-    libzcash::PaymentAddress pa = DecodePaymentAddress(uni_get_str(uni, "privateaddress"));
+    std::string revocationStr = uni_get_str(find_value(uni, "revocationauthority"));
+    std::string recoveryStr = uni_get_str(find_value(uni, "recoveryauthority"));
 
-    if (revocationAuthority.IsNull() || recoveryAuthority.IsNull() || boost::get<libzcash::SaplingPaymentAddress>(&pa) == nullptr)
+    revocationAuthority = uint160(GetDestinationID(DecodeDestination(revocationStr == "" ? name + "@" : revocationStr)));
+    recoveryAuthority = uint160(GetDestinationID(DecodeDestination(recoveryStr == "" ? name + "@" : recoveryStr)));
+    libzcash::PaymentAddress pa = DecodePaymentAddress(uni_get_str(find_value(uni, "privateaddress")));
+
+    if (revocationAuthority.IsNull() || recoveryAuthority.IsNull())
     {
-        printf("%s: invalid Sapling address %s\n", __func__, uni_get_str(uni, "privateaddress").c_str());
-        LogPrintf("%s: invalid Sapling address %s\n", __func__, uni_get_str(uni, "privateaddress").c_str());
+        printf("%s: invalid address\n", __func__);
+        LogPrintf("%s: invalid address\n", __func__);
         nVersion = VERSION_INVALID;
     }
-    else
+    else if (boost::get<libzcash::SaplingPaymentAddress>(&pa) != nullptr)
     {
-        privateAddress = *boost::get<libzcash::SaplingPaymentAddress>(&pa);
+        privateAddresses.push_back(*boost::get<libzcash::SaplingPaymentAddress>(&pa));
     }
 }
 
@@ -100,90 +168,82 @@ UniValue CIdentity::ToUniValue() const
 {
     UniValue obj = ((CPrincipal *)this)->ToUniValue();
 
+    obj.push_back(Pair("identityaddress", EncodeDestination(CIdentityID(GetID()))));
+    obj.push_back(Pair("parent", EncodeDestination(CKeyID(parent))));
     obj.push_back(Pair("name", name));
 
-    UniValue aliases(UniValue::VARR);
-    for (int i = 0; i < names.size(); i++)
+    UniValue hashes(UniValue::VOBJ);
+    for (auto &entry : contentMap)
     {
-        aliases.push_back(names[i]);
+        hashes.push_back(Pair(entry.first.GetHex(), entry.second.GetHex()));
     }
-    obj.push_back(Pair("names", aliases));
+    obj.push_back(Pair("contentmap", hashes));
 
-    obj.push_back(Pair("revocationauthorityid", EncodeDestination(CTxDestination(CKeyID(revocationAuthority)))));
-    obj.push_back(Pair("recoveryauthorityid", EncodeDestination(CTxDestination(CKeyID(recoveryAuthority)))));
-    obj.push_back(Pair("privateaddress", EncodePaymentAddress(privateAddress)));
+    obj.push_back(Pair("revocationauthority", EncodeDestination(CTxDestination(CIdentityID(revocationAuthority)))));
+    obj.push_back(Pair("recoveryauthority", EncodeDestination(CTxDestination(CIdentityID(recoveryAuthority)))));
+    if (privateAddresses.size())
+    {
+        obj.push_back(Pair("privateaddress", EncodePaymentAddress(privateAddresses[0])));
+    }
     return obj;
 }
 
-CIdentity::CIdentity(const CScript &scriptPubKey)
-{
-    COptCCParams p;
-    if (IsPayToCryptoCondition(scriptPubKey, p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_PRIMARY && p.vData.size())
-    {
-        FromVector(p.vData[0], *this);
-
-        // TODO - remove this after validation is finished, check now in case some larger strings got into the chain
-        name = std::string(name, 0, (KOMODO_ASSETCHAIN_MAXLEN - 1));
-        string invalidChars = "\\/:?\"<>|";
-        for (int i = 0; i < name.size(); i++)
-        {
-            if (invalidChars.find(name[i]) != string::npos)
-            {
-                name[i] = '_';
-            }
-        }
-    }
-}
-
-CIdentity::CIdentity(const CTransaction &tx)
+CIdentity::CIdentity(const CTransaction &tx, int *voutNum)
 {
     std::set<uint160> ids;
-    int idCount;
+    int idIndex;
+    bool found = false;
 
     nVersion = PBAAS_VERSION_INVALID;
-    for (auto out : tx.vout)
+    for (int i = 0; i < tx.vout.size(); i++)
     {
-        *this = CIdentity(out.scriptPubKey);
-        if (IsValid())
+        CIdentity foundIdentity(tx.vout[i].scriptPubKey);
+        if (foundIdentity.IsValid() && !found)
         {
-            break;
+            *this = foundIdentity;
+            found = true;
+            idIndex = i;
+        }
+        else if (foundIdentity.IsValid())
+        {
+            *this = CIdentity();
         }
     }
-}
-
-uint160 CIdentity::GetNameID(const std::string &name) const
-{
-    const char *idName = name.c_str();
-    uint256 idHash;
-    if (parent.IsNull())
+    if (voutNum && IsValid())
     {
-        idHash = Hash(idName, idName + strlen(idName));
+        *voutNum = idIndex;
     }
-    else
-    {
-        idHash = Hash(idName, idName + strlen(idName));
-        idHash = Hash(parent.begin(), parent.end(), idHash.begin(), idHash.end());
-
-    }
-    return Hash160(idHash.begin(), idHash.end());
 }
 
-uint160 CIdentity::GetNameID() const
-{
-    return GetNameID(name);
-}
-
-CIdentity CIdentity::LookupIdentity(const uint160 &nameID)
+CIdentity CIdentity::LookupIdentity(const CIdentityID &nameID, uint32_t height, uint32_t *pHeightOut, CTxIn *pIdTxIn)
 {
     CIdentity ret;
 
+    uint32_t heightOut = 0;
+
+    if (!pHeightOut)
+    {
+        pHeightOut = &heightOut;
+    }
+    else
+    {
+        *pHeightOut = 0;
+    }
+
+    CTxIn _idTxIn;
+    if (!pIdTxIn)
+    {
+        pIdTxIn = &_idTxIn;
+    }
+    CTxIn &idTxIn = *pIdTxIn;
+
     std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs;
 
-    LOCK2(cs_main, mempool.cs);
+    LOCK(cs_main);
 
     CKeyID keyID(CCrossChainRPCData::GetConditionID(nameID, EVAL_IDENTITY_PRIMARY));
 
-    if (GetAddressUnspent(keyID, 1, unspentOutputs))
+    if (GetAddressUnspent(keyID, CScript::P2PKH, unspentOutputs))
     {
         CCoinsViewCache view(pcoinsTip);
 
@@ -198,115 +258,868 @@ CIdentity CIdentity::LookupIdentity(const uint160 &nameID)
                     // check the mempool for spent/modified
                     CSpentIndexKey key(it->first.txhash, it->first.index);
                     CSpentIndexValue value;
-                    if (mempool.getSpentIndex(key, value))
+
+                    COptCCParams p;
+                    if (coins.vout[it->first.index].scriptPubKey.IsPayToCryptoCondition(p) &&
+                        p.IsValid() && 
+                        p.evalCode == EVAL_IDENTITY_PRIMARY && 
+                        (ret = CIdentity(coins.vout[it->first.index].scriptPubKey)).IsValid())
                     {
-                        do
+                        if (ret.GetID() == nameID)
                         {
-                            CTransaction tx;
-                            if (mempool.lookup(it->first.txhash, tx))
-                            {
-                                for (int i = 0; !ret.IsValid() && i < tx.vout.size(); i++)
-                                {
-                                    ret = CIdentity(tx.vout[i].scriptPubKey);
-                                    key = CSpentIndexKey(tx.GetHash(), i);
-                                }
-                            }
-                            else
-                            {
-                                key = CSpentIndexKey(uint256(), -1);
-                            }
-                        } while (mempool.getSpentIndex(key, value));
+                            idTxIn = CTxIn(it->first.txhash, it->first.index);
+                            *pHeightOut = it->second.blockHeight;
+                        }
+                        else
+                        {
+                            // got an identity masquerading as another, clear it
+                            ret = CIdentity();
+                        }
                     }
-                    else
+                }
+            }
+        }
+
+        if (height != 0 && *pHeightOut > height)
+        {
+            *pHeightOut = 0;
+
+            // if we must check up to a specific height that is less than the latest height, do so
+            std::vector<CAddressIndexDbEntry> addressIndex;
+
+            if (GetAddressIndex(keyID, 1, addressIndex, 0, height) && addressIndex.size())
+            {
+                int txIndex = 0;
+                // look from last backward to find the first valid ID
+                for (int i = addressIndex.size() - 1; i >= 0; i--)
+                {
+                    if (addressIndex[i].first.blockHeight < *pHeightOut)
                     {
-                        ret = CIdentity(coins.vout[it->first.index].scriptPubKey);
+                        break;
+                    }
+                    CTransaction idTx;
+                    uint256 blkHash;
+                    COptCCParams p;
+                    LOCK(mempool.cs);
+                    if (!addressIndex[i].first.spending &&
+                        addressIndex[i].first.txindex > txIndex &&    // always select the latest in a block, if there can be more than one
+                        myGetTransaction(addressIndex[i].first.txhash, idTx, blkHash) &&
+                        idTx.vout[addressIndex[i].first.index].scriptPubKey.IsPayToCryptoCondition(p) &&
+                        p.IsValid() && 
+                        p.evalCode == EVAL_IDENTITY_PRIMARY && 
+                        (ret = CIdentity(idTx.vout[addressIndex[i].first.index].scriptPubKey)).IsValid())
+                    {
+                        idTxIn = CTxIn(addressIndex[i].first.txhash, addressIndex[i].first.index);
+                        *pHeightOut = addressIndex[i].first.blockHeight;
+                        txIndex = addressIndex[i].first.txindex;
                     }
                 }
             }
             else
             {
-                printf("%s: cannot retrieve transaction %s\n", __func__, it->first.txhash.GetHex().c_str());
+                // not found at that height
+                ret = CIdentity();
+                idTxIn = CTxIn();
             }
         }
     }
     return ret;
 }
 
-CIdentity CIdentity::LookupIdentity(const std::string &name)
+CIdentity CIdentity::LookupIdentity(const std::string &name, uint32_t height, uint32_t *pHeightOut, CTxIn *idTxIn)
 {
-    return LookupIdentity(GetNameID(name));
+    return LookupIdentity(GetID(name), height, pHeightOut, idTxIn);
 }
 
-// TODO:PBAAS this type of output must be recognized and supported in the CC signature code
-CScript CIdentity::IdentityUpdateOutputScript() const
+CIdentity CIdentity::LookupFirstIdentity(const CIdentityID &idID, uint32_t *pHeightOut, CTxIn *pIdTxIn, CTransaction *pidTx)
 {
-    CScript ret;
+    CIdentity ret;
 
-    if (!IsValid())
+    uint32_t heightOut = 0;
+
+    if (!pHeightOut)
     {
-        return ret;
+        pHeightOut = &heightOut;
+    }
+    else
+    {
+        *pHeightOut = 0;
     }
 
-    // output crypto condition can be updated according to different eval restrictions by
-    // primary principal, revocation authority, and recovery authority
-
-    // if revocation authority or recovery authority are revoked, they are not included as possible spenders
-    std::vector<CC*> multisigs;
-
-    multisigs.push_back(MakeCCcondMofN(EVAL_IDENTITY_PRIMARY, primaryAddresses, minSigs));
-
-    uint160 primaryID = GetNameID();
-    CIdentity revocation = (primaryID == revocationAuthority) ? *this : LookupIdentity(revocationAuthority);
-    if (!revocation.IsValidUnrevoked())
+    CTxIn _idTxIn;
+    if (!pIdTxIn)
     {
-        revocation = *this;
+        pIdTxIn = &_idTxIn;
     }
-    CIdentity recovery = (primaryID == recoveryAuthority) ? *this : LookupIdentity(recoveryAuthority);
-    if (!recovery.IsValidUnrevoked())
+    CTxIn &idTxIn = *pIdTxIn;
+
+    std::vector<CAddressUnspentDbEntry> unspentOutputs;
+
+    LOCK(cs_main);
+
+    CKeyID keyID(CCrossChainRPCData::GetConditionID(idID, EVAL_IDENTITY_RESERVATION));
+
+    if (GetAddressUnspent(keyID, CScript::P2PKH, unspentOutputs))
     {
-        recovery = *this;
+        CCoinsViewCache view(pcoinsTip);
+
+        for (auto it = unspentOutputs.begin(); !ret.IsValid() && it != unspentOutputs.end(); it++)
+        {
+            CCoins coins;
+
+            if (view.GetCoins(it->first.txhash, coins))
+            {
+                if (coins.IsAvailable(it->first.index))
+                {
+                    COptCCParams p;
+                    if (coins.vout[it->first.index].scriptPubKey.IsPayToCryptoCondition(p) &&
+                        p.IsValid() && 
+                        p.evalCode == EVAL_IDENTITY_RESERVATION)
+                    {
+                        CTransaction idTx;
+                        uint256 blkHash;
+                        if (myGetTransaction(it->first.txhash, idTx, blkHash) && (ret = CIdentity(idTx)).IsValid() && ret.GetID() == idID)
+                        {
+                            int i;
+                            for (i = 0; i < idTx.vout.size(); i++)
+                            {
+                                COptCCParams p;
+                                if (idTx.vout[i].scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.version >= p.VERSION_V3 && p.evalCode == EVAL_IDENTITY_PRIMARY)
+                                {
+                                    break;
+                                }
+                            }
+
+                            if (i < idTx.vout.size())
+                            {
+                                if (pidTx)
+                                {
+                                    *pidTx = idTx;
+                                }
+                                idTxIn = CTxIn(it->first.txhash, i);
+                                *pHeightOut = it->second.blockHeight;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-
-    multisigs.push_back(MakeCCcondMofN(EVAL_IDENTITY_REVOKE, revocation.primaryAddresses, revocation.minSigs));
-    multisigs.push_back(MakeCCcondMofN(EVAL_IDENTITY_RECOVER, recovery.primaryAddresses, recovery.minSigs));
-
-    CC *compoundMultisig = CCNewThreshold(1, multisigs);
-
-    ret = CCPubKey(compoundMultisig);
-    cc_free(compoundMultisig);
-
-    // we will encode the compound multisig's primary identity and revocation + recovery principals in the output
-    // that will allow us to reconstruct the compount CC when signing
-    // TODO:PBAAS this CC should actually store only the primary ID as destination and bind during signing and validation to the
-    // latest state of the identity
-    std::vector<std::vector<unsigned char>> vvch({::AsVector(*this), ::AsVector((CPrincipal)revocation), ::AsVector((CPrincipal)recovery)});
-
-    std::vector<CTxDestination> dests;
-    dests.push_back(CTxDestination(CKeyID(CCrossChainRPCData::GetConditionID(GetNameID(), EVAL_IDENTITY_PRIMARY))));
-
-    COptCCParams vParams = COptCCParams(COptCCParams::VERSION_V3, EVAL_IDENTITY_PRIMARY, 1, (uint8_t)(dests.size()), dests, vvch);
-
-    // add the object to the end of the script
-    ret << vParams.AsVector() << OP_DROP;
     return ret;
 }
 
-bool ValidateIdentityPrimary(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+// this enables earliest rejection of invalid CC transactions
+bool PrecheckIdentityReservation(const CTransaction &tx, int32_t outNum, CValidationState &state, uint32_t height, bool referrals)
 {
-    // validate that from the input to the output, the only changes are those allowed by the primary identity
+    // CHECK #1 - there is only one reservation output, and there is also one identity output that matches the reservation.
+    //            the identity output must come first and have from 0 to 3 referral outputs between it and the reservation.
+    int numReferrers = 0;
+    int identityCount = 0;
+    int reservationCount = 0;
+    CIdentity newIdentity;
+    CNameReservation newName;
+    std::vector<CTxDestination> referrers;
+    bool valid = true;
+
+    AssertLockHeld(cs_main);
+
+    for (auto &txout : tx.vout)
+    {
+        COptCCParams p;
+        if (txout.scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.version >= p.VERSION_V3)
+        {
+            if (p.evalCode == EVAL_IDENTITY_PRIMARY)
+            {
+                if (identityCount++ || p.vData.size() < 2)
+                {
+                    valid = false;
+                    break;
+                }
+                newIdentity = CIdentity(p.vData[0]);
+            }
+            else if (p.evalCode == EVAL_IDENTITY_RESERVATION)
+            {
+                if (reservationCount++ || p.vData.size() < 2)
+                {
+                    valid = false;
+                    break;
+                }
+                newName = CNameReservation(p.vData[0]);
+            }
+            else if (identityCount && !reservationCount)
+            {
+                if (!referrals || p.vKeys.size() < 1 || referrers.size() > (CIdentity::REFERRAL_LEVELS - 1) || p.evalCode != 0 || p.n > 1 || txout.nValue < newIdentity.ReferralAmount())
+                {
+                    valid = false;
+                    break;
+                }
+                referrers.push_back(p.vKeys[0]);
+            }
+            else if (identityCount != reservationCount)
+            {
+                valid = false;
+                break;
+            }
+        }
+    }
+
+    // we can close a commitment UTXO without an identity
+    if (valid && !identityCount)
+    {
+        return state.Error("Transaction may not have an identity reservation without a matching identity");
+    }
+    else if (!valid)
+    {
+        return state.Error("Improperly formed identity definition transaction");
+    }
+
+    std::vector<CTxDestination> dests;
+    int minSigs;
+    txnouttype outType;
+    if (ExtractDestinations(tx.vout[outNum].scriptPubKey, outType, dests, minSigs))
+    {
+        uint160 thisID = newIdentity.GetID();
+        for (auto &dest : dests)
+        {
+            uint160 oneDestID;
+            if (dest.which() == COptCCParams::ADDRTYPE_ID && (oneDestID = GetDestinationID(dest)) != thisID && !CIdentity::LookupIdentity(CIdentityID(oneDestID)).IsValid())
+            {
+                return state.Error("Destination includes invalid identity");
+            }
+        }
+    }
+
+    // CHECK #2 - must be rooted in this chain
+    if (newIdentity.parent != ConnectedChains.ThisChain().GetChainID())
+    {
+        return state.Error("Identity parent of new identity must be current chain");
+    }
+
+    // CHECK #3 - if dupID is valid, we need to be spending it to recover. redefinition is invalid
+    CTxIn idTxIn;
+    uint32_t priorHeightOut;
+    CIdentity dupID = newIdentity.LookupIdentity(newIdentity.GetID(), height - 1, &priorHeightOut, &idTxIn);
+    uint256 inputBlockHash;
+
+    CCoinsViewCache view(pcoinsTip);
+    if (dupID.IsValid())
+    {
+        return state.Error("Identity already exists");
+    }
+    // CHECK #3a - if dupID is invalid, ensure we spend a matching name commitment
+    else
+    {
+        CCommitmentHash ch;
+        int idx = -1;
+        CTransaction txInput;
+
+        // from here, we must spend a matching name commitment
+        for (auto &oneTxIn : tx.vin)
+        {
+            if (!myGetTransaction(oneTxIn.prevout.hash, txInput, inputBlockHash))
+            {
+                return state.Error("Cannot access input");
+            }
+
+            if (oneTxIn.prevout.n >= txInput.vout.size())
+            {
+                //extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry);
+                //UniValue uniTx;
+                //TxToJSON(tx, uint256(), uniTx);
+                //printf("%s\n", uniTx.write(1, 2).c_str());
+                return state.Error("Input index out of range");
+            }
+
+            COptCCParams p;
+            if (txInput.vout[oneTxIn.prevout.n].scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_COMMITMENT && p.vData.size())
+            {
+                idx = oneTxIn.prevout.n;
+                ::FromVector(p.vData[0], ch);
+                break;
+            }
+        }
+
+        if (idx == -1 || ch.hash.IsNull() || inputBlockHash.IsNull())
+        {
+            std::string specificMsg = "Invalid identity commitment in tx: " + tx.GetHash().GetHex();
+            return state.Error(specificMsg);
+        }
+
+        auto priorIt = mapBlockIndex.find(inputBlockHash);
+        if (priorIt == mapBlockIndex.end() || !chainActive.Contains(priorIt->second))
+        {
+            return state.Error("Identity commitment not in current chain");
+        }
+
+        priorHeightOut = priorIt->second->GetHeight();
+
+        // are we spending a matching name commitment?
+        if (ch.hash != newName.GetCommitment().hash)
+        {
+            return state.Error("Mismatched identity commitment");
+        }
+
+        if (!newName.referral.IsNull() && referrals && !(CIdentity::LookupIdentity(newName.referral, priorHeightOut - 1).IsValid()))
+        {
+            // invalid referral identity
+            return state.Error("Invalid referral identity specified");
+        }
+    }
+
+    CReserveTransactionDescriptor rtxd(tx, view, height);
+
+    // CHECK #4 - if blockchain referrals are not enabled or if there is no referring identity, make sure the fees of this transaction are full price for an identity, 
+    // all further checks only if referrals are enabled and there is a referrer
+    if (!referrals || newName.referral.IsNull())
+    {
+        // make sure the fees of this transaction are full price for an identity, all further checks only if there is a referrer
+        if (rtxd.NativeFees() < newIdentity.FullRegistrationAmount())
+        {
+            return state.Error("Invalid identity registration - insufficient fee");
+        }
+        return true;
+    }
+
+    // CHECK #5 - ensure that the first referring output goes to the referring identity followed by up 
+    //            to two identities that come from the original definition transaction of the referring identity. account for all outputs between
+    //            identity out and reservation out and ensure that they are correct and pay 20% of the price of an identity
+    uint32_t heightOut = 0;
+    CTransaction referralTx;
+
+    CIdentity firstReferralIdentity = CIdentity::LookupFirstIdentity(newName.referral, &heightOut, &idTxIn, &referralTx);
+
+    // referrer must be mined in when this transaction is put into the mem pool
+    if (heightOut >= height || !firstReferralIdentity.IsValid())
+    {
+        return state.Error("Invalid identity registration referral");
+    }
+
+    bool isReferral = false;
+    std::vector<CTxDestination> checkReferrers = std::vector<CTxDestination>({newName.referral});
+    for (auto &txout : referralTx.vout)
+    {
+        COptCCParams p;
+        if (txout.scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.version >= p.VERSION_V3)
+        {
+            if (p.evalCode == EVAL_IDENTITY_PRIMARY)
+            {
+                isReferral = true;
+            }
+            else if (p.evalCode == EVAL_IDENTITY_RESERVATION)
+            {
+                break;
+            }
+            else if (isReferral)
+            {
+                if (p.vKeys.size() == 0 || p.vKeys[0].which() != COptCCParams::ADDRTYPE_ID)
+                {
+                    // invalid referral
+                    return state.Error("Invalid identity registration referral outputs");
+                }
+                else
+                {
+                    checkReferrers.push_back(p.vKeys[0]);
+                    if (checkReferrers.size() == CIdentity::REFERRAL_LEVELS)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (referrers.size() != checkReferrers.size())
+    {
+        return state.Error("Invalid identity registration - incorrect referral payments");
+    }
+
+    // make sure all paid referrers are correct
+    for (int i = 0; i < referrers.size(); i++)
+    {
+        if (referrers[i] != checkReferrers[i])
+        {
+            return state.Error("Invalid identity registration - incorrect referral payments");
+        }
+    }
+
+    // CHECK #6 - ensure that the transaction pays the correct mining and refferal fees
+    if (rtxd.NativeFees() < (newIdentity.ReferredRegistrationAmount() - (referrers.size() * newIdentity.ReferralAmount())))
+    {
+        return state.Error("Invalid identity registration - insufficient fee");
+    }
+
     return true;
 }
 
-bool ValidateIdentityRevoke(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool PrecheckIdentityReservation(const CTransaction &tx, int32_t outNum, CValidationState &state, uint32_t height)
 {
-    // validate that from the input to the output, the only changes are those allowed by the primary identity
+    return PrecheckIdentityReservation(tx, outNum, state, height, ConnectedChains.ThisChain().IDReferrals());
+}
+
+// with the thorough check for an identity reservation, the only thing we need to check is that either 1) this transaction includes an identity reservation output or 2)
+// this transaction spends a prior identity transaction that does not create a clearly invalid mutation between the two
+bool PrecheckIdentityPrimary(const CTransaction &tx, int32_t outNum, CValidationState &state, uint32_t height)
+{
+    AssertLockHeld(cs_main);
+
+    bool validReservation = false;
+    bool validIdentity = false;
+
+    CNameReservation nameRes;
+    CIdentity identity;
+    COptCCParams p, identityP;
+
+    for (auto &output : tx.vout)
+    {
+        if (output.scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.version >= COptCCParams::VERSION_V3 && p.evalCode == EVAL_IDENTITY_RESERVATION && p.vData.size() > 1 && (nameRes = CNameReservation(p.vData[0])).IsValid())
+        {
+            // twice through makes it invalid
+            if (validReservation)
+            {
+                return state.Error("Invalid multiple identity reservations on one transaction");
+            }
+            validReservation = true;
+        }
+        else if (p.IsValid() && p.version >= COptCCParams::VERSION_V3 && p.evalCode == EVAL_IDENTITY_PRIMARY && p.vData.size() > 1 && (identity = CIdentity(p.vData[0])).IsValid())
+        {
+            // twice through makes it invalid
+            if (validIdentity)
+            {
+                return state.Error("Invalid multiple identity definitions on one transaction");
+            }
+            identityP = p;
+            validIdentity = true;
+        }
+    }
+
+    if (!validIdentity)
+    {
+        return state.Error("Invalid identity definition");
+    }
+
+    CIdentityID idID = identity.GetID();
+    p = identityP;
+
+    // ensure that we have all required spend conditions for primary, revocation, and recovery
+    // if there are additional spend conditions, their addition or removal is checked for validity
+    // depending on which of the mandatory spend conditions is authorized.
+    COptCCParams master;
+    if (p.vData.size() < 4 || !(master = COptCCParams(p.vData.back())).IsValid() || master.evalCode != 0 || master.m != 1)
+    {
+        // we need to have 3 authority spend conditions mandatory at a top level for any primary ID output
+        bool primary = false, revocation = false, recovery = false;
+
+        for (auto dest : p.vKeys)
+        {
+            if (dest.which() == COptCCParams::ADDRTYPE_ID && (idID == GetDestinationID(dest)))
+            {
+                primary = true;
+            }
+        }
+        if (!primary)
+        {
+            std::string errorOut = "Primary identity output condition of \"" + identity.name + "\" is not spendable by self";
+            return state.Error(errorOut.c_str());
+        }
+        for (int i = 1; i < p.vData.size() - 1; i++)
+        {
+            COptCCParams oneP(p.vData[i]);
+            // must be valid and composable
+            if (!oneP.IsValid() || oneP.version < oneP.VERSION_V3)
+            {
+                std::string errorOut = "Invalid output condition from identity: \"" + identity.name + "\"";
+                return state.Error(errorOut.c_str());
+            }
+
+            if (oneP.evalCode == EVAL_IDENTITY_REVOKE || oneP.evalCode == EVAL_IDENTITY_RECOVER)
+            {
+                for (auto dest : oneP.vKeys)
+                {
+                    if (dest.which() == COptCCParams::ADDRTYPE_ID)
+                    {
+                        if (oneP.evalCode == EVAL_IDENTITY_REVOKE && (identity.revocationAuthority == GetDestinationID(dest)))
+                        {
+                            revocation = true;
+                        }
+                        else if (oneP.evalCode == EVAL_IDENTITY_RECOVER && (identity.recoveryAuthority == GetDestinationID(dest)))
+                        {
+                            recovery = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // we need separate spend conditions for both revoke and recover in all cases
+        if (!revocation || !recovery)
+        {
+            std::string errorOut = "Primary identity output \"" + identity.name + "\" must be spendable by revocation and recovery authorities";
+            return state.Error(errorOut.c_str());
+        }
+    }
+
+    std::vector<CTxDestination> dests;
+    int minSigs;
+    txnouttype outType;
+    if (ExtractDestinations(tx.vout[outNum].scriptPubKey, outType, dests, minSigs))
+    {
+        uint160 thisID = identity.GetID();
+        for (auto &dest : dests)
+        {
+            uint160 oneDestID;
+            if (dest.which() == COptCCParams::ADDRTYPE_ID && (oneDestID = GetDestinationID(dest)) != thisID && !CIdentity::LookupIdentity(CIdentityID(oneDestID)).IsValid())
+            {
+                return state.Error("Destination includes invalid identity");
+            }
+        }
+    }
+
+    // compare commitment without regard to case or other textual transformations that are irrelevant to matching
+    uint160 parentChain = ConnectedChains.ThisChain().GetChainID();
+    if (validReservation && identity.GetID(nameRes.name, parentChain) == identity.GetID())
+    {
+        return true;
+    }
+
+    // if we made it to here without an early, positive exit, we must determine that we are spending a matching identity, and if so, all is fine so far
+    CTransaction inTx;
+    uint256 blkHash;
+    LOCK(mempool.cs);
+    for (auto &input : tx.vin)
+    {
+        if (input.prevout.hash == inTx.GetHash() || myGetTransaction(input.prevout.hash, inTx, blkHash))
+        {
+            if (inTx.vout[input.prevout.n].scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_PRIMARY && p.vData.size() > 1 && (identity = CIdentity(p.vData[0])).IsValid())
+            {
+                return true;
+            }
+        }
+    }
+
+    return state.Error("Invalid primary identity - does not include identity reservation or spend matching identity");
+}
+
+CIdentity GetOldIdentity(const CTransaction &spendingTx, uint32_t nIn, CTransaction *pSourceTx = nullptr);
+CIdentity GetOldIdentity(const CTransaction &spendingTx, uint32_t nIn, CTransaction *pSourceTx)
+{
+    CTransaction _sourceTx;
+    CTransaction &sourceTx(pSourceTx ? *pSourceTx : _sourceTx);
+
+    // if not fulfilled, ensure that no part of the primary identity is modified
+    CIdentity oldIdentity;
+    uint256 blkHash;
+    if (myGetTransaction(spendingTx.vin[nIn].prevout.hash, sourceTx, blkHash))
+    {
+        COptCCParams p;
+        if (sourceTx.vout[spendingTx.vin[nIn].prevout.n].scriptPubKey.IsPayToCryptoCondition(p) &&
+            p.IsValid() && 
+            p.evalCode == EVAL_IDENTITY_PRIMARY && 
+            p.version >= COptCCParams::VERSION_V3 &&
+            p.vData.size() > 1)
+        {
+            oldIdentity = CIdentity(p.vData[0]);
+        }
+    }
+    return oldIdentity;
+}
+
+bool ValidateIdentityPrimary(struct CCcontract_info *cp, Eval* eval, const CTransaction &spendingTx, uint32_t nIn, bool fulfilled)
+{
+    CTransaction sourceTx;
+    CIdentity oldIdentity = GetOldIdentity(spendingTx, nIn, &sourceTx);
+
+    if (!oldIdentity.IsValid())
+    {
+        return eval->Error("Spending invalid identity");
+    }
+
+    int idIndex;
+    CIdentity newIdentity(spendingTx, &idIndex);
+    if (!newIdentity.IsValid())
+    {
+        return eval->Error("Attempting to define invalid identity");
+    }
+
+    if (oldIdentity.IsInvalidMutation(newIdentity))
+    {
+        return eval->Error("Invalid identity modification");
+    }
+
+    // if not fullfilled and not revoked, we are responsible for rejecting any modification of
+    // data under primary authority control
+    if (!fulfilled && !oldIdentity.IsRevoked())
+    {
+        if (oldIdentity.IsPrimaryMutation(newIdentity))
+        {
+            return eval->Error("Unauthorized identity modification");
+        }
+        // make sure that the primary spend conditions are not modified
+        COptCCParams p, q;
+        sourceTx.vout[spendingTx.vin[nIn].prevout.n].scriptPubKey.IsPayToCryptoCondition(p);
+        spendingTx.vout[idIndex].scriptPubKey.IsPayToCryptoCondition(q);
+
+        if (q.evalCode != EVAL_IDENTITY_PRIMARY ||
+            p.version > q.version ||
+            p.m != q.m ||
+            p.n != q.n ||
+            p.vKeys != q.vKeys)
+        {
+            return eval->Error("Unauthorized modification of identity primary spend condition");
+        }
+    }
+
     return true;
 }
 
-bool ValidateIdentityRecover(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn)
+bool ValidateIdentityRevoke(struct CCcontract_info *cp, Eval* eval, const CTransaction &spendingTx, uint32_t nIn, bool fulfilled)
 {
-    // validate that from the input to the output, the only changes are those allowed by the primary identity
+    CTransaction sourceTx;
+    CIdentity oldIdentity = GetOldIdentity(spendingTx, nIn, &sourceTx);
+    if (!oldIdentity.IsValid())
+    {
+        return eval->Error("Invalid source identity");
+    }
+
+    int idIndex;
+    CIdentity newIdentity(spendingTx, &idIndex);
+    if (!newIdentity.IsValid())
+    {
+        return eval->Error("Attempting to replace identity with one that is invalid");
+    }
+
+    if (oldIdentity.IsInvalidMutation(newIdentity))
+    {
+        return eval->Error("Invalid identity modification");
+    }
+
+    if (oldIdentity.IsRevocation(newIdentity) && oldIdentity.recoveryAuthority == oldIdentity.GetID())
+    {
+        return eval->Error("Cannot revoke an identity with self as the recovery authority");
+    }
+
+    // make sure that spend conditions are valid and revocation spend conditions are not modified
+    COptCCParams p, q;
+
+    spendingTx.vout[idIndex].scriptPubKey.IsPayToCryptoCondition(q);
+
+    if (q.evalCode != EVAL_IDENTITY_PRIMARY)
+    {
+        return eval->Error("Invalid identity output in spending transaction");
+    }
+
+    COptCCParams oldRevokeP, newRevokeP;
+
+    for (int i = 1; i < q.vData.size() - 1; i++)
+    {
+        COptCCParams oneP(q.vData[i]);
+        // must be valid and composable
+        if (!oneP.IsValid() || oneP.version < oneP.VERSION_V3)
+        {
+            std::string errorOut = "Invalid output condition from identity: \"" + newIdentity.name + "\"";
+            return eval->Error(errorOut.c_str());
+        }
+
+        if (oneP.evalCode == EVAL_IDENTITY_REVOKE)
+        {
+            if (newRevokeP.IsValid())
+            {
+                std::string errorOut = "Invalid output condition from identity: \"" + newIdentity.name + "\", more than one revocation condition";
+                return eval->Error(errorOut.c_str());
+            }
+            newRevokeP = oneP;
+        }
+    }
+
+    if (!newRevokeP.IsValid())
+    {
+        std::string errorOut = "Invalid revocation output condition for identity: \"" + newIdentity.name + "\"";
+        return eval->Error(errorOut.c_str());
+    }
+
+    // if not fulfilled, neither revocation data nor its spend condition may be modified
+    if (!fulfilled)
+    {
+        sourceTx.vout[spendingTx.vin[nIn].prevout.n].scriptPubKey.IsPayToCryptoCondition(p);
+
+        if (oldIdentity.IsRevocation(newIdentity) || oldIdentity.IsRevocationMutation(newIdentity))
+        {
+            return eval->Error("Unauthorized modification of revocation information");
+        }
+
+        for (int i = 1; i < p.vData.size() - 1; i++)
+        {
+            COptCCParams oneP(p.vData[i]);
+            if (oneP.evalCode == EVAL_IDENTITY_REVOKE)
+            {
+                oldRevokeP = oneP;
+            }
+        }
+
+        if (!oldRevokeP.IsValid() || 
+            !newRevokeP.IsValid() ||
+            oldRevokeP.version > newRevokeP.version ||
+            oldRevokeP.m != newRevokeP.m ||
+            oldRevokeP.n != newRevokeP.n ||
+            oldRevokeP.vKeys != newRevokeP.vKeys)
+        {
+            return eval->Error("Unauthorized modification of identity revocation spend condition");
+        }
+    }
+
     return true;
+}
+
+bool ValidateIdentityRecover(struct CCcontract_info *cp, Eval* eval, const CTransaction &spendingTx, uint32_t nIn, bool fulfilled)
+{
+    CTransaction sourceTx;
+    CIdentity oldIdentity = GetOldIdentity(spendingTx, nIn, &sourceTx);
+    if (!oldIdentity.IsValid())
+    {
+        return eval->Error("Invalid source identity");
+    }
+
+    int idIndex;
+    CIdentity newIdentity(spendingTx, &idIndex);
+    if (!newIdentity.IsValid())
+    {
+        return eval->Error("Attempting to replace identity with one that is invalid");
+    }
+
+    if (oldIdentity.IsInvalidMutation(newIdentity))
+    {
+        return eval->Error("Invalid identity modification");
+    }
+
+    // make sure that spend conditions are valid and revocation spend conditions are not modified
+    COptCCParams p, q;
+
+    spendingTx.vout[idIndex].scriptPubKey.IsPayToCryptoCondition(q);
+
+    if (q.evalCode != EVAL_IDENTITY_PRIMARY)
+    {
+        return eval->Error("Invalid identity output in spending transaction");
+    }
+
+    COptCCParams oldRecoverP, newRecoverP;
+
+    for (int i = 1; i < q.vData.size() - 1; i++)
+    {
+        COptCCParams oneP(q.vData[i]);
+        // must be valid and composable
+        if (!oneP.IsValid() || oneP.version < oneP.VERSION_V3)
+        {
+            std::string errorOut = "Invalid output condition from identity: \"" + newIdentity.name + "\"";
+            return eval->Error(errorOut.c_str());
+        }
+
+        if (oneP.evalCode == EVAL_IDENTITY_RECOVER)
+        {
+            if (newRecoverP.IsValid())
+            {
+                std::string errorOut = "Invalid output condition from identity: \"" + newIdentity.name + "\", more than one recovery condition";
+                return eval->Error(errorOut.c_str());
+            }
+            newRecoverP = oneP;
+        }
+    }
+
+    if (!newRecoverP.IsValid())
+    {
+        std::string errorOut = "Invalid recovery output condition for identity: \"" + newIdentity.name + "\"";
+        return eval->Error(errorOut.c_str());
+    }
+
+    // if not fulfilled, neither recovery data nor its spend condition may be modified
+    if (!fulfilled)
+    {
+        sourceTx.vout[spendingTx.vin[nIn].prevout.n].scriptPubKey.IsPayToCryptoCondition(p);
+
+        // if revoked, only fulfilled recovery condition allows primary mutation
+        if (oldIdentity.IsRevoked() && (oldIdentity.IsPrimaryMutation(newIdentity)))
+        {
+            return eval->Error("Unauthorized modification of revoked identity without recovery authority");
+        }
+
+        if (oldIdentity.IsRecovery(newIdentity) || oldIdentity.IsRecoveryMutation(newIdentity))
+        {
+            return eval->Error("Unauthorized modification of recovery information");
+        }
+
+        for (int i = 1; i < p.vData.size() - 1; i++)
+        {
+            COptCCParams oneP(p.vData[i]);
+            if (oneP.evalCode == EVAL_IDENTITY_RECOVER)
+            {
+                oldRecoverP = oneP;
+            }
+        }
+
+        if (!oldRecoverP.IsValid() || 
+            !newRecoverP.IsValid() ||
+            oldRecoverP.version > newRecoverP.version ||
+            oldRecoverP.m != newRecoverP.m ||
+            oldRecoverP.n != newRecoverP.n ||
+            oldRecoverP.vKeys != newRecoverP.vKeys)
+        {
+            return eval->Error("Unauthorized modification of identity recovery spend condition");
+        }
+    }
+    return true;
+}
+
+bool ValidateIdentityCommitment(struct CCcontract_info *cp, Eval* eval, const CTransaction &spendingTx, uint32_t nIn, bool fulfilled)
+{
+    // if not fulfilled, return true so as to allow it to fail if fulfillment matters, but not to veto
+    if (!fulfilled)
+    {
+        return true;
+    }
+
+    CCommitmentHash ch;
+    CNameReservation reservation;
+    CTransaction sourceTx;
+    uint256 blkHash;
+    if (myGetTransaction(spendingTx.vin[nIn].prevout.hash, sourceTx, blkHash))
+    {
+        COptCCParams p;
+        if (sourceTx.vout[spendingTx.vin[nIn].prevout.n].scriptPubKey.IsPayToCryptoCondition(p) &&
+            p.IsValid() && 
+            p.evalCode == EVAL_IDENTITY_COMMITMENT && 
+            p.version >= COptCCParams::VERSION_V3 &&
+            p.vData.size() > 1)
+        {
+            ch = CCommitmentHash(p.vData[0]);
+        }
+        else
+        {
+            return eval->Error("Invalid source commitment output");
+        }
+
+        for (auto output : spendingTx.vout)
+        {
+            if (output.scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.evalCode == EVAL_IDENTITY_RESERVATION && p.vData.size() > 1)
+            {
+                if (reservation.IsValid())
+                {
+                    return eval->Error("Invalid identity reservation output spend");
+                }
+                else
+                {
+                    reservation = CNameReservation(p.vData[0]);
+                    if (!reservation.IsValid() || reservation.GetCommitment().hash != ch.hash)
+                    {
+                        return eval->Error("Identity reservation output spend does not match commitment");
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool ValidateIdentityReservation(struct CCcontract_info *cp, Eval* eval, const CTransaction &spendingTx, uint32_t nIn, bool fulfilled)
+{
+    // identity reservations are unspendable
+    return eval->Error("Identity reservations are unspendable");
 }
 
 bool IsIdentityInput(const CScript &scriptSig)

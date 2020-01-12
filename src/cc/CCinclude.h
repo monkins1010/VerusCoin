@@ -76,11 +76,12 @@ struct CC_meta
 
 struct CCcontract_info
 {
-    char unspendableCCaddr[64],CChexstr[72],normaladdr[64],unspendableaddr2[64],unspendableaddr3[64];
-    uint8_t CCpriv[32],unspendablepriv2[32],unspendablepriv3[32];
-    CPubKey unspendablepk2,unspendablepk3;
-    bool (*validate)(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn);
+    char unspendableCCaddr[64], CChexstr[72], normaladdr[64], unspendableaddr2[64], unspendableaddr3[64];
+    uint8_t CCpriv[32], unspendablepriv2[32], unspendablepriv3[32];
+    CPubKey unspendablepk2, unspendablepk3;
+    bool (*validate)(struct CCcontract_info *cp, Eval* eval, const CTransaction &tx, uint32_t nIn, bool fulfilled);
     bool (*ismyvin)(CScript const& scriptSig);
+    bool (*contextualprecheck)(const CTransaction &tx, int32_t outNum, CValidationState &state, uint32_t height);
     uint8_t evalcode,evalcode2,evalcode3,didinit;
 };
 struct CCcontract_info *CCinit(struct CCcontract_info *cp,uint8_t evalcode);
@@ -140,6 +141,7 @@ CC *MakeCCcond1(uint8_t evalcode,CTxDestination dest);
 CC *MakeCCcondAny(uint8_t evalcode,std::vector<CTxDestination> dests);
 CC *MakeCCcond1of2(uint8_t evalcode,CPubKey pk1,CPubKey pk2);
 CC *MakeCCcondMofN(uint8_t evalcode, const std::vector<CTxDestination> &dests, int M);
+CC *MakeCCcondMofN(uint8_t evalcode, const std::vector<CC*> &conditions, int M);
 CC *GetCryptoCondition(CScript const& scriptSig);
 void CCaddr2set(struct CCcontract_info *cp,uint8_t evalcode,CPubKey pk,uint8_t *priv,char *coinaddr);
 void CCaddr3set(struct CCcontract_info *cp,uint8_t evalcode,CPubKey pk,uint8_t *priv,char *coinaddr);
@@ -177,5 +179,139 @@ bits256 curve25519_basepoint9();
 bits256 curve25519(bits256 mysecret,bits256 basepoint);
 void vcalc_sha256(char deprecated[(256 >> 3) * 2 + 1],uint8_t hash[256 >> 3],uint8_t *src,int32_t len);
 bits256 bits256_doublesha256(char *deprecated,uint8_t *data,int32_t datalen);
+
+// TOBJ is CConditionObj of a CC output type
+template <typename TOBJ>
+CScript MakeMofNCCScript(const CConditionObj<TOBJ> &conditionObj, const CTxDestination *indexDest=nullptr)
+{
+    // indexDest is always added, but we need to index on all can-sign identities as well
+    std::vector<CTxDestination> indexIDs = indexDest ? std::vector<CTxDestination>({*indexDest}) : conditionObj.evalCode == EVAL_NONE ? std::vector<CTxDestination>() : std::vector<CTxDestination>({conditionObj.dests[0]});
+    int idxSize = indexIDs.size();
+
+    COptCCParams masterParams = COptCCParams(COptCCParams::VERSION_V3, 0, idxSize, idxSize, indexIDs, std::vector<std::vector<unsigned char>>());
+    CScript scriptRet = CScript() << masterParams.AsVector() << OP_CHECKCRYPTOCONDITION;
+
+    std::vector<std::vector<unsigned char>> vvch = conditionObj.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(conditionObj.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams = COptCCParams(COptCCParams::VERSION_V3, conditionObj.evalCode, conditionObj.m, (uint8_t)(conditionObj.dests.size()), conditionObj.dests, vvch);
+
+    // add the object to the end of the script
+    scriptRet << vParams.AsVector() << OP_DROP;
+    return scriptRet;
+}
+
+template <typename TOBJ1, typename TOBJ2>
+CScript MakeMofNCCScript(int M, TOBJ1 &condition1, TOBJ2 &condition2, const std::vector<CTxDestination> *indexDests=nullptr)
+{
+    if (M > 2) M = 2;
+    std::vector<CTxDestination> indexIDs = indexDests ? *indexDests : std::vector<CTxDestination>({condition1.dests[0], condition2.dests[0]});
+
+    COptCCParams masterParams = COptCCParams(COptCCParams::VERSION_V3, 0, M, 2, indexIDs, std::vector<std::vector<unsigned char>>());
+    CScript scriptRet = CScript() << masterParams.AsVector() << OP_CHECKCRYPTOCONDITION;
+
+    std::vector<std::vector<unsigned char>> vvch2 = condition2.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition2.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams2 = COptCCParams(COptCCParams::VERSION_V3, condition2.evalCode, condition2.m, (uint8_t)(condition2.dests.size()), condition2.dests, vvch2);
+
+    std::vector<std::vector<unsigned char>> vvch1({::AsVector(condition1.obj), vParams2.AsVector()});
+    COptCCParams vParams1 = COptCCParams(COptCCParams::VERSION_V3, condition1.evalCode, condition1.m, (uint8_t)(condition1.dests.size()), condition1.dests, vvch1);
+
+    // add the object to the end of the script
+    scriptRet << vParams1.AsVector() << OP_DROP;
+    return scriptRet;
+}
+
+template <typename TOBJ1, typename TOBJ2, typename TOBJ3>
+CScript MakeMofNCCScript(int M, TOBJ1 &condition1, TOBJ2 &condition2, TOBJ3 &condition3, const std::vector<CTxDestination> *indexDests=nullptr)
+{
+    if (M > 3) M = 3;
+    std::vector<CTxDestination> indexIDs = indexDests ? *indexDests : std::vector<CTxDestination>({condition1.dests[0], condition2.dests[0], condition3.dests[0]});
+
+    COptCCParams masterParams = COptCCParams(COptCCParams::VERSION_V3, 0, M, 3, indexIDs, std::vector<std::vector<unsigned char>>());
+    CScript scriptRet = CScript() << masterParams.AsVector() << OP_CHECKCRYPTOCONDITION;
+
+    std::vector<std::vector<unsigned char>> vvch2 = condition2.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition2.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams2 = COptCCParams(COptCCParams::VERSION_V3, condition2.evalCode, condition2.m, (uint8_t)(condition2.dests.size()), condition2.dests, vvch2);
+
+    std::vector<std::vector<unsigned char>> vvch3 = condition3.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition3.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams3 = COptCCParams(COptCCParams::VERSION_V3, condition3.evalCode, condition3.m, (uint8_t)(condition3.dests.size()), condition3.dests, vvch3);
+
+    std::vector<std::vector<unsigned char>> vvch({::AsVector(condition1.obj), vParams2.AsVector(), vParams3.AsVector()});
+    COptCCParams vParams1 = COptCCParams(COptCCParams::VERSION_V3, condition1.evalCode, condition1.m, (uint8_t)(condition1.dests.size()), condition1.dests, vvch);
+
+    // add the object to the end of the script
+    scriptRet << vParams1.AsVector() << OP_DROP;
+    return scriptRet;
+}
+
+template <typename TOBJ1, typename TOBJ2, typename TOBJ3, typename TOBJ4>
+CScript MakeMofNCCScript(int M, TOBJ1 &condition1, TOBJ2 &condition2, TOBJ3 &condition3, TOBJ4 &condition4, const std::vector<CTxDestination> *indexDests=nullptr)
+{
+    if (M > 4) M = 4;
+    std::vector<CTxDestination> indexIDs = indexDests ? *indexDests : std::vector<CTxDestination>({condition1.dests[0], condition2.dests[0], condition3.dests[0], condition4.dests[0]});
+
+    COptCCParams masterParams = COptCCParams(COptCCParams::VERSION_V3, 0, M, 4, indexIDs, std::vector<std::vector<unsigned char>>());
+    CScript scriptRet = CScript() << masterParams.AsVector() << OP_CHECKCRYPTOCONDITION;
+
+    std::vector<std::vector<unsigned char>> vvch2 = condition2.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition2.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams2 = COptCCParams(COptCCParams::VERSION_V3, condition2.evalCode, condition2.m, (uint8_t)(condition2.dests.size()), condition2.dests, vvch2);
+
+    std::vector<std::vector<unsigned char>> vvch3 = condition3.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition3.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams3 = COptCCParams(COptCCParams::VERSION_V3, condition3.evalCode, condition3.m, (uint8_t)(condition3.dests.size()), condition3.dests, vvch3);
+
+    std::vector<std::vector<unsigned char>> vvch4 = condition3.HaveObject() ? std::vector<std::vector<unsigned char>>({::AsVector(condition4.obj)}) : std::vector<std::vector<unsigned char>>();
+    COptCCParams vParams4 = COptCCParams(COptCCParams::VERSION_V3, condition4.evalCode, condition4.m, (uint8_t)(condition4.dests.size()), condition4.dests, vvch4);
+
+    std::vector<std::vector<unsigned char>> vvch({::AsVector(condition1.obj), vParams2.AsVector(), vParams3.AsVector(), vParams4.AsVector()});
+    COptCCParams vParams1 = COptCCParams(COptCCParams::VERSION_V3, condition1.evalCode, condition1.m, (uint8_t)(condition1.dests.size()), condition1.dests, vvch);
+
+    // add the object to the end of the script
+    scriptRet << vParams1.AsVector() << OP_DROP;
+    return scriptRet;
+}
+
+// TOBJ is CConditionObj of a CC output type
+template <typename TOBJ>
+std::vector<unsigned char> MakeMofNCCCond(TOBJ &conditionObj)
+{
+    CC *cond = MakeCCcondMofN(conditionObj.evalCode, conditionObj.dests, conditionObj.m);
+    std::vector<unsigned char> vecRet = CCPubKeyVec(cond);
+    cc_free(cond);
+    return vecRet;
+}
+
+template <typename TOBJ1, typename TOBJ2>
+std::vector<unsigned char> MakeMofNCCCond(int M, TOBJ1 &condition1, TOBJ2 &condition2)
+{
+    if (M > 2) M = 2;
+    std::vector<CC*> conditions({MakeCCcondMofN(condition1.evalCode, condition1.dests, condition1.m), MakeCCcondMofN(condition2.evalCode, condition2.dests, condition2.m)});
+    CC *cond = CCNewThreshold(M, conditions);
+    std::vector<unsigned char> vecRet = CCPubKeyVec(cond);
+    cc_free(cond);
+    return vecRet;
+}
+
+template <typename TOBJ1, typename TOBJ2, typename TOBJ3>
+std::vector<unsigned char> MakeMofNCCCond(int M, TOBJ1 &condition1, TOBJ2 &condition2, TOBJ3 &condition3)
+{
+    if (M > 3) M = 3;
+    std::vector<CC*> conditions({MakeCCcondMofN(condition1.evalCode, condition1.dests, condition1.m), MakeCCcondMofN(condition2.evalCode, condition2.dests, condition2.m), MakeCCcondMofN(condition3.evalCode, condition3.dests, condition3.m)});
+    CC *cond = CCNewThreshold(M, conditions);
+    std::vector<unsigned char> vecRet = CCPubKeyVec(cond);
+    cc_free(cond);
+    return vecRet;
+}
+
+template <typename TOBJ1, typename TOBJ2, typename TOBJ3, typename TOBJ4>
+std::vector<unsigned char> MakeMofNCCCond(int M, TOBJ1 &condition1, TOBJ2 &condition2, TOBJ3 &condition3, TOBJ4 &condition4)
+{
+    if (M > 4) M = 4;
+    std::vector<CC*> conditions({MakeCCcondMofN(condition1.evalCode, condition1.dests, condition1.m), 
+                                 MakeCCcondMofN(condition2.evalCode, condition2.dests, condition2.m), 
+                                 MakeCCcondMofN(condition3.evalCode, condition3.dests, condition3.m), 
+                                 MakeCCcondMofN(condition4.evalCode, condition4.dests, condition4.m)});
+    CC *cond = CCNewThreshold(M, conditions);
+    std::vector<unsigned char> vecRet = CCPubKeyVec(cond);
+    cc_free(cond);
+    return vecRet;
+}
 
 #endif

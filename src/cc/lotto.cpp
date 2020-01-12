@@ -112,7 +112,7 @@ bool LottoExactAmounts(struct CCcontract_info *cp,Eval* eval,const CTransaction 
     else return(true);
 }
 
-bool LottoValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn)
+bool LottoValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn, bool fulfilled)
 {
     int32_t numvins,numvouts,preventCCvins,preventCCvouts,i; bool retval;
     return(false); // reject any lotto CC for now
@@ -295,6 +295,7 @@ std::string LottoCreate(uint64_t txfee,char *planstr,int64_t funding,int32_t tic
         mtx.vout.push_back(MakeCC1vout(EVAL_LOTTO,funding,lottopk));
         return(FinalizeCCTx(0,cp,mtx,mypk,txfee,CScript() << OP_RETURN << E_MARSHAL(ss << (uint8_t)EVAL_LOTTO << (uint8_t)'F' << sbits << ticketsize << odds << firstheight << period << hentropy)));
     }
+    return "";
 }
 
 std::string LottoTicket(uint64_t txfee,uint256 lottoid,int64_t numtickets)

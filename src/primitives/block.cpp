@@ -206,7 +206,7 @@ int32_t CBlockHeader::AddPBaaSHeader(const CPBaaSBlockHeader &pbh)
 bool CBlockHeader::AddUpdatePBaaSHeader(const CPBaaSBlockHeader &pbh)
 {
     CPBaaSBlockHeader pbbh;
-    if (CConstVerusSolutionVector::Version(nSolution) == CActivationHeight::SOLUTION_VERUSV3)
+    if (CConstVerusSolutionVector::Version(nSolution) >= CActivationHeight::ACTIVATE_PBAAS)
     {
         if (int32_t idx = GetPBaaSHeader(pbbh, pbh.chainID) != -1)
         {
@@ -224,7 +224,7 @@ bool CBlockHeader::AddUpdatePBaaSHeader(const CPBaaSBlockHeader &pbh)
 // This is required to make a valid PoS or PoW block.
 bool CBlockHeader::AddUpdatePBaaSHeader(uint256 prevMMRRoot)
 {
-    if (CConstVerusSolutionVector::Version(nSolution) == CActivationHeight::SOLUTION_VERUSV3)
+    if (CConstVerusSolutionVector::Version(nSolution) >= CActivationHeight::ACTIVATE_PBAAS)
     {
         CPBaaSPreHeader pbph(hashPrevBlock, hashMerkleRoot, hashFinalSaplingRoot, nNonce, nBits);
         CPBaaSBlockHeader pbh(ASSETCHAINS_CHAINID, pbph, prevMMRRoot);
@@ -269,17 +269,19 @@ uint256 CBlockHeader::GetVerusV2Hash() const
     {
         if (nVersion == VERUS_V2)
         {
+            int solutionVersion = CConstVerusSolutionVector::Version(nSolution);
+
             // in order for this to work, the PBaaS hash of the pre-header must match the header data
             // otherwise, it cannot clear the canonical data and hash in a chain-independent manner
             if (CConstVerusSolutionVector::IsPBaaS(nSolution) && CheckNonCanonicalData())
             {
                 CBlockHeader bh = CBlockHeader(*this);
                 bh.ClearNonCanonicalData();
-                return SerializeVerusHashV2b(bh);
+                return SerializeVerusHashV2b(bh, solutionVersion);
             }
             else
             {
-                return SerializeVerusHashV2b(*this);
+                return SerializeVerusHashV2b(*this, solutionVersion);
             }
         }
         else

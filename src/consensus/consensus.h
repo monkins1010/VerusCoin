@@ -25,7 +25,7 @@ extern unsigned int MAX_BLOCK_SIGOPS;
 /** The maximum size of a transaction (network rule) */
 static const unsigned int MAX_TX_SIZE_BEFORE_SAPLING = 100000;
 static const unsigned int MAX_TX_SIZE_AFTER_SAPLING = MAX_BLOCK_SIZE;
-static const unsigned int MAX_TX_SIZE_FOR_STAKING = 2048;               // we won't stake with transactions that are too large to avoid
+static const unsigned int MAX_TX_SIZE_FOR_STAKING = 3072;               // we won't stake with transactions that are too large to avoid
                                                                         // massive header proofs. staking transactoin source goes into the
                                                                         // header. has to be big enough to handle typical unshielding transactions
 

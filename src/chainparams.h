@@ -41,6 +41,7 @@ public:
     enum Base58Type {
         PUBKEY_ADDRESS,
         SCRIPT_ADDRESS,
+        IDENTITY_ADDRESS,
         SECRET_KEY,
         EXT_PUBLIC_KEY,
         EXT_SECRET_KEY,
@@ -102,6 +103,10 @@ public:
     std::string GetFoundersRewardAddressAtHeight(int height) const;
     CScript GetFoundersRewardScriptAtHeight(int height) const;
     std::string GetFoundersRewardAddressAtIndex(int i) const;
+    /** Enable disable coinbase protection on mainnet */
+    void DisableCoinbaseMustBeProtected() { consensus.fCoinbaseMustBeProtected = false; }
+    void EnableCoinbaseMustBeProtected() { consensus.fCoinbaseMustBeProtected = true; }
+
     /** Enforce coinbase consensus rule in regtest mode */
     void SetRegTestCoinbaseMustBeProtected() { consensus.fCoinbaseMustBeProtected = true; }
 
@@ -152,6 +157,8 @@ protected:
  */
 const CChainParams &Params();
 bool AreParamsInitialized();
+void DisableCoinbaseMustBeProtected();
+void EnableCoinbaseMustBeProtected();
 
 /** Return parameters for the given network. */
 CChainParams &Params(CBaseChainParams::Network network);

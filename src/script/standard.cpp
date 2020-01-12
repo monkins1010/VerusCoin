@@ -11,6 +11,11 @@
 #include "utilstrencodings.h"
 #include "script/cc.h"
 #include "key_io.h"
+#include "keystore.h"
+#include "pbaas/identity.h"
+#include "pbaas/reserves.h"
+#include "cc/eval.h"
+#include "cc/CCinclude.h"
 
 #include <boost/foreach.hpp>
 
@@ -70,7 +75,7 @@ COptCCParams::COptCCParams(std::vector<unsigned char> &vch)
                 evalCode = param[1];
                 m = param[2];
                 n = param[3];
-                if (version == 0 || version > VERSION_V2 || m > n || (n < 1 || n > 4) || data.size() <= n)
+                if (version == 0 || version > VERSION_V3 || m > n || ((version < VERSION_V3 && n < 1) || n > 4) || (version < VERSION_V3 ? data.size() <= n : data.size() < n))
                 {
                     // set invalid
                     version = 0;
@@ -81,16 +86,16 @@ COptCCParams::COptCCParams(std::vector<unsigned char> &vch)
                     vKeys.clear();
                     vData.clear();
                     int i;
-                    for (i = 1; i <= n; i++)
+                    for (i = 1; version != 0 && i <= n; i++)
                     {
-                        std::vector<unsigned char> key = data[i];
-                        if (version == 2 && key.size() == 20)
+                        std::vector<unsigned char> &keyVec = data[i];
+                        if (keyVec.size() == 20)
                         {
-                            vKeys.push_back(CKeyID(uint160(data[i])));
+                            vKeys.push_back(CKeyID(uint160(keyVec)));
                         }
-                        else if (key.size() == 33)
+                        else if (keyVec.size() == 33)
                         {
-                            CPubKey key(data[i]);
+                            CPubKey key(keyVec);
                             if (key.IsValid())
                             {
                                 vKeys.push_back(CTxDestination(key));
@@ -98,7 +103,68 @@ COptCCParams::COptCCParams(std::vector<unsigned char> &vch)
                             else
                             {
                                 version = 0;
-                                break;
+                            }
+                        }
+                        else if (version > VERSION_V2 && (keyVec.size() == 21 || keyVec.size() == 34))
+                        {
+                            // the first byte is an indicator of type of destination, the
+                            // rest is either a hash of an ID or another type of address
+                            switch (keyVec[0])
+                            {
+                                case ADDRTYPE_PK:
+                                {
+                                    if (keyVec.size() == 34)
+                                    {
+                                        CPubKey key(std::vector<unsigned char>(keyVec.begin() + 1, keyVec.end()));
+                                        if (key.IsValid())
+                                        {
+                                            vKeys.push_back(CTxDestination(key));
+                                        }
+                                    }
+                                    else
+                                    {
+                                        version = 0;
+                                    }
+                                    break;
+                                }
+                                case ADDRTYPE_PKH:
+                                {
+                                    if (keyVec.size() == 21)
+                                    {
+                                        vKeys.push_back(CKeyID(uint160(std::vector<unsigned char>(keyVec.begin() + 1, keyVec.end()))));
+                                    }
+                                    else
+                                    {
+                                        version = 0;
+                                    }
+                                    break;
+                                }
+                                case ADDRTYPE_SH:
+                                {
+                                    if (keyVec.size() == 21)
+                                    {
+                                        vKeys.push_back(CScriptID(uint160(std::vector<unsigned char>(keyVec.begin() + 1, keyVec.end()))));
+                                    }
+                                    else
+                                    {
+                                        version = 0;
+                                    }
+                                    break;
+                                }
+                                case ADDRTYPE_ID:
+                                {
+                                    if (keyVec.size() == 21)
+                                    {
+                                        vKeys.push_back(CIdentityID(uint160(std::vector<unsigned char>(keyVec.begin() + 1, keyVec.end()))));
+                                    }
+                                    else
+                                    {
+                                        version = 0;
+                                    }
+                                    break;
+                                }
+                                default:
+                                    version = 0;
                             }
                         }
                         else
@@ -106,7 +172,6 @@ COptCCParams::COptCCParams(std::vector<unsigned char> &vch)
                             version = 0;
                             break;
                         }
-                        
                     }
                     if (version != 0)
                     {
@@ -129,7 +194,12 @@ std::vector<unsigned char> COptCCParams::AsVector() const
     cData << std::vector<unsigned char>({version, evalCode, m, n});
     for (auto k : vKeys)
     {
-        cData << GetDestinationBytes(k);
+        std::vector<unsigned char> keyBytes = GetDestinationBytes(k);
+        if (version > VERSION_V2 && (k.which() == ADDRTYPE_SH || k.which() == ADDRTYPE_ID))
+        {
+            keyBytes.insert(keyBytes.begin(), (uint8_t)k.which());
+        }
+        cData << keyBytes;
     }
     for (auto d : vData)
     {
@@ -206,8 +276,49 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
             {
                 cp = COptCCParams(vParams[0]);
             }
-
-            if (scriptPubKey.MayAcceptCryptoCondition(cp.evalCode))
+            if (cp.IsValid() && cp.version >= cp.VERSION_V3)
+            {
+                typeRet = TX_CRYPTOCONDITION;
+                static std::set<int> VALID_EVAL_CODES({
+                    EVAL_NONE,
+                    EVAL_STAKEGUARD,
+                    EVAL_PBAASDEFINITION,
+                    EVAL_SERVICEREWARD,
+                    EVAL_EARNEDNOTARIZATION,
+                    EVAL_ACCEPTEDNOTARIZATION,
+                    EVAL_FINALIZENOTARIZATION,
+                    EVAL_CURRENCYSTATE,
+                    EVAL_RESERVE_TRANSFER,
+                    EVAL_RESERVE_OUTPUT,
+                    EVAL_RESERVE_EXCHANGE,
+                    EVAL_RESERVE_DEPOSIT,
+                    EVAL_CROSSCHAIN_EXPORT,
+                    EVAL_CROSSCHAIN_IMPORT,
+                    EVAL_IDENTITY_PRIMARY,
+                    EVAL_IDENTITY_REVOKE,
+                    EVAL_IDENTITY_RECOVER,
+                    EVAL_IDENTITY_COMMITMENT,
+                    EVAL_IDENTITY_RESERVATION
+                });
+                if (VALID_EVAL_CODES.count(cp.evalCode))
+                {
+                    for (auto k : cp.vKeys)
+                    {
+                        if (k.which() == COptCCParams::ADDRTYPE_SH || k.which() == COptCCParams::ADDRTYPE_ID)
+                        {
+                            std::vector<unsigned char> vch(GetDestinationBytes(k));
+                            vch.insert(vch.begin(), (uint8_t)k.which());
+                            vSolutionsRet.push_back(vch);
+                        }
+                        else
+                        {
+                            vSolutionsRet.push_back(GetDestinationBytes(k));
+                        }
+                    }
+                    return true;
+                }
+            }
+            else if (scriptPubKey.MayAcceptCryptoCondition(cp.evalCode))
             {
                 typeRet = TX_CRYPTOCONDITION;
 
@@ -226,14 +337,9 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
                     }
                 }
 
-                vector<unsigned char> hashBytes; uint160 x; int32_t i; uint8_t hash20[20],*ptr;;
-                x = Hash160(ccSubScript);
-                memcpy(hash20,&x,20);
-                hashBytes.resize(20);
-                ptr = hashBytes.data();
-                for (i=0; i<20; i++)
-                    ptr[i] = hash20[i];
-                vSolutionsRet.push_back(hashBytes);
+                uint160 scrHash; 
+                scrHash = Hash160(ccSubScript);
+                vSolutionsRet.push_back(std::vector<unsigned char>(scrHash.begin(), scrHash.end()));
                 return true;
             }
             return false;
@@ -431,15 +537,25 @@ bool ExtractDestination(const CScript& _scriptPubKey, CTxDestination& addressRet
     else if (IsCryptoConditionsEnabled() != 0 && whichType == TX_CRYPTOCONDITION)
     {
         COptCCParams p;
-        scriptPubKey.IsPayToCryptoCondition(p);
-        addressRet = p.vKeys[0];
-        return true;
+        if (scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid() && p.vKeys.size())
+        {
+            addressRet = p.vKeys[0];
+            return true;
+        }
     }
     // Multisig txns have more than one address...
     return false;
 }
 
-bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, vector<CTxDestination>& addressRet, int& nRequiredRet)
+bool ExtractDestinations(const CScript& scriptPubKey, 
+                         txnouttype& typeRet, 
+                         std::vector<CTxDestination>& addressRet, 
+                         int &nRequiredRet, 
+                         const CKeyStore *pKeyStore, 
+                         bool *pCanSign, 
+                         bool *pCanSpend,
+                         uint32_t lastIdHeight,
+                         std::map<uint160, CKey> *pPrivKeys)
 {
     addressRet.clear();
     typeRet = TX_NONSTANDARD;
@@ -455,56 +571,239 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, vecto
         CScript postfix = CScript(scriptPubKey.size() > scriptStart ? scriptPubKey.begin() + scriptStart : scriptPubKey.end(), scriptPubKey.end());
 
         // check again with only postfix subscript
-        return(ExtractDestinations(postfix, typeRet, addressRet, nRequiredRet));
+        return(ExtractDestinations(postfix, typeRet, addressRet, nRequiredRet, pKeyStore, pCanSign, pCanSpend, lastIdHeight, pPrivKeys));
     }
 
-    if (!Solver(scriptPubKey, typeRet, vSolutions))
-        return false;
-    if (typeRet == TX_NULL_DATA){
-        // This is data, not addresses
-        return false;
-    }
+    int canSpendCount = 0;
+    bool canSign = false;
 
-    if (typeRet == TX_MULTISIG)
+    COptCCParams master, p;
+    bool ccValid;
+    if (scriptPubKey.IsPayToCryptoCondition(p))
     {
-        nRequiredRet = vSolutions.front()[0];
-        for (unsigned int i = 1; i < vSolutions.size()-1; i++)
+        std::set<CScriptID> idSet;
+
+        if (p.IsValid() && 
+            p.n >= 1 && 
+            p.vKeys.size() >= p.n)
         {
-            CPubKey pubKey(vSolutions[i]);
-            if (!pubKey.IsValid())
-                continue;
+            typeRet = TX_CRYPTOCONDITION;
+            if (p.version < p.VERSION_V3)
+            {
+                for (auto dest : p.vKeys)
+                {
+                    uint160 destId = GetDestinationID(dest);
+                    addressRet.push_back(dest);
+                    if (dest.which() == COptCCParams::ADDRTYPE_ID)
+                    {
+                        // lookup identity, we must have all registered target identity scripts in our keystore, or we try as if they are a keyID, which will be the same
+                        // if revoked or undefined
+                        std::pair<CIdentityMapKey, CIdentityMapValue> identity;
+                        idSet.insert(destId);
 
-            CTxDestination address = pubKey.GetID();
-            addressRet.push_back(address);
+                        if (pKeyStore && pKeyStore->GetIdentity(destId, identity, lastIdHeight) && identity.second.IsValidUnrevoked())
+                        {
+                            int canSignCount = 0;
+                            for (auto oneKey : identity.second.primaryAddresses)
+                            {
+                                uint160 oneKeyID = GetDestinationID(oneKey);
+                                CKey privKey;
+                                if (pKeyStore->GetKey(oneKeyID, privKey))
+                                {
+                                    canSign = true;
+                                    canSignCount++;
+                                    if (pPrivKeys)
+                                    {
+                                        (*pPrivKeys)[oneKeyID] = privKey;
+                                    }
+                                }
+                            }
+                            if (canSignCount >= identity.second.minSigs)
+                            {
+                                canSpendCount++;
+                            }
+                        }
+                    }
+                    else if (pKeyStore)
+                    {
+                        CKey privKey;
+                        if (pKeyStore->GetKey(destId, privKey))
+                        {
+                            canSign = true;
+                            canSpendCount++;
+                            if (pPrivKeys)
+                            {
+                                (*pPrivKeys)[destId] = privKey;
+                            }
+                        }
+                    }
+                }
+                nRequiredRet = p.m;
+                if (canSpendCount >= p.m && pCanSpend)
+                {
+                    *pCanSpend = true;
+                }
+                if (canSign && pCanSign)
+                {
+                    *pCanSign = true;
+                }
+            }
+            else if (p.vData.size() && (ccValid = (master = COptCCParams(p.vData.back())).IsValid()))
+            {
+                // always add the index keys to destinations, but that has nothing to do with whether or not
+                // an ID present in that index represents an address that can sign or spend. ids in this block
+                // are ignored, as all IDs in an output are always indexed in the address and unspent indexes.
+                for (auto dest : master.vKeys)
+                {
+                    // all but ID types
+                    if (dest.which() != COptCCParams::ADDRTYPE_ID)
+                    {
+                        // include all non-name addresses from master as destinations as well
+                        // name addresses can only be destinations if they are at least "cansign" on one of the subconditions
+                        addressRet.push_back(dest);
+                    }
+                }
+
+                for (int i = -1; ccValid && i < (int)(p.vData.size() - 1); i++)
+                {
+                    // first, process P, then any sub-conditions
+                    COptCCParams _oneP;
+                    COptCCParams &oneP = (i == -1) ? p : (_oneP = COptCCParams(p.vData[i]));
+
+                    if (ccValid = oneP.IsValid())
+                    {
+                        int canSpendOneCount = 0;
+
+                        for (auto dest : oneP.vKeys)
+                        {
+                            uint160 destId = GetDestinationID(dest);
+                            addressRet.push_back(dest);
+                            if (dest.which() == COptCCParams::ADDRTYPE_ID)
+                            {
+                                // lookup identity, we must have all registered target identity scripts in our keystore, or we try as if they are a keyID, which will be the same
+                                // as if revoked or undefined
+                                std::pair<CIdentityMapKey, CIdentityMapValue> identity;
+                                idSet.insert(destId);
+
+                                //printf("checking: %s\n", EncodeDestination(dest).c_str());
+
+                                if (pKeyStore && pKeyStore->GetIdentity(destId, identity, lastIdHeight) && identity.second.IsValidUnrevoked())
+                                {
+                                    int canSignCount = 0;
+                                    for (auto oneKey : identity.second.primaryAddresses)
+                                    {
+                                        uint160 oneKeyID = GetDestinationID(oneKey);
+
+                                        CKey privKey;
+                                        if (pKeyStore->GetKey(oneKeyID, privKey))
+                                        {
+                                            canSign = true;
+                                            canSignCount++;
+                                            if (pPrivKeys)
+                                            {
+                                                (*pPrivKeys)[oneKeyID] = privKey;
+                                            }
+                                        }
+                                    }
+                                    if (canSignCount >= identity.second.minSigs)
+                                    {
+                                        canSpendOneCount++;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                if (pKeyStore)
+                                {
+                                    CKey privKey;
+                                    if (pKeyStore->GetKey(destId, privKey))
+                                    {
+                                        canSign = true;
+                                        canSpendOneCount++;
+                                        if (pPrivKeys)
+                                        {
+                                            (*pPrivKeys)[destId] = privKey;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (canSpendOneCount >= oneP.m)
+                        {
+                            canSpendCount++;
+                        }
+                    }
+                }
+
+                // if this is a compound cc, the master m of n is the top level as an m of n of the sub-conditions
+                nRequiredRet = p.vData.size() > 2 ? master.m : p.m;
+                if (canSpendCount >= nRequiredRet && pCanSpend)
+                {
+                    *pCanSpend = true;
+                }
+                if (canSign && pCanSign)
+                {
+                    *pCanSign = true;
+                }
+            }
+            else
+            {
+                CScript subScr;
+                if (scriptPubKey.IsPayToCryptoCondition(&subScr))
+                {
+                    // this kind of ID is defined as a CKeyID, since use of script hash type in CCs are reserved for IDs
+                    addressRet.push_back(CKeyID(Hash160(subScr)));
+                    nRequiredRet = 1;
+                }
+                else
+                {
+                    return false;
+                }
+            }
         }
-
-        if (addressRet.empty())
-            return false;
-    }
-    else if (IsCryptoConditionsEnabled() != 0 && typeRet == TX_CRYPTOCONDITION)
-    {
-        COptCCParams p;
-        scriptPubKey.IsPayToCryptoCondition(p);
-        nRequiredRet = p.m == 0 ? 1 : p.m;
-        for (auto address : p.vKeys)
+        else
         {
-            addressRet.push_back(address);
-        }
-
-        if (addressRet.empty())
             return false;
+        }
     }
     else
     {
-        nRequiredRet = 1;
-        CTxDestination address;
-        if (!ExtractDestination(scriptPubKey, address))
-        {
-           return false;
-        }
-        addressRet.push_back(address);
-    }
+        if (!Solver(scriptPubKey, typeRet, vSolutions))
+            return false;
 
+        if (typeRet == TX_NULL_DATA){
+            // This is data, not addresses
+            return false;
+        }
+
+        if (typeRet == TX_MULTISIG)
+        {
+            nRequiredRet = vSolutions.front()[0];
+            for (unsigned int i = 1; i < vSolutions.size()-1; i++)
+            {
+                CPubKey pubKey(vSolutions[i]);
+                if (!pubKey.IsValid())
+                    continue;
+
+                CTxDestination address = pubKey.GetID();
+                addressRet.push_back(address);
+            }
+
+            if (addressRet.empty())
+                return false;
+        }
+        else
+        {
+            nRequiredRet = 1;
+            CTxDestination address;
+            if (!ExtractDestination(scriptPubKey, address))
+            {
+            return false;
+            }
+            addressRet.push_back(address);
+        }
+    }
+    
     return true;
 }
 
@@ -531,6 +830,11 @@ public:
     bool operator()(const CKeyID &keyID) const {
         script->clear();
         *script << OP_DUP << OP_HASH160 << ToByteVector(keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+        return true;
+    }
+
+    bool operator()(const CIdentityID &idID) const {
+        *script = CIdentity::TransparentOutput(idID);
         return true;
     }
 
@@ -574,6 +878,8 @@ CTxDestination DestFromAddressHash(int scriptType, uint160& addressHash)
     switch (scriptType) {
     case CScript::P2PKH:
         return CTxDestination(CKeyID(addressHash));
+    case CScript::P2ID:
+        return CTxDestination(CIdentityID(addressHash));
     case CScript::P2SH:
         return CTxDestination(CScriptID(addressHash));
     default:
@@ -583,3 +889,31 @@ CTxDestination DestFromAddressHash(int scriptType, uint160& addressHash)
         return CNoDestination();
     }
 }
+
+CScript::ScriptType AddressTypeFromDest(const CTxDestination &dest)
+{
+    switch (dest.which()) {
+
+
+        static const uint8_t ADDRTYPE_INVALID = 0;
+        static const uint8_t ADDRTYPE_PK = 1;
+        static const uint8_t ADDRTYPE_PKH = 2;
+        static const uint8_t ADDRTYPE_SH = 3;
+        static const uint8_t ADDRTYPE_ID = 4;
+        static const uint8_t ADDRTYPE_LAST = 3;
+
+    case COptCCParams::ADDRTYPE_PK:
+    case COptCCParams::ADDRTYPE_PKH:
+        return CScript::P2PKH;
+    case COptCCParams::ADDRTYPE_SH:
+        return CScript::P2SH;
+    case COptCCParams::ADDRTYPE_ID:
+        return CScript::P2ID;
+    default:
+        // This probably won't ever happen, because it would mean that
+        // the addressindex contains a type (say, 3) that we (currently)
+        // don't recognize; maybe we "dropped support" for it?
+        return CScript::UNKNOWN;
+    }
+}
+

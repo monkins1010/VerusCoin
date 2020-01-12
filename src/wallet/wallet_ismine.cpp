@@ -10,6 +10,8 @@
 #include "script/script.h"
 #include "script/standard.h"
 #include "cc/eval.h"
+#include "pbaas/identity.h"
+#include "cc/CCinclude.h"
 
 #include <boost/foreach.hpp>
 
@@ -50,7 +52,36 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& _scriptPubKey)
         scriptPubKey = CScript(scriptPubKey.size() > scriptStart ? scriptPubKey.begin() + scriptStart : scriptPubKey.end(), scriptPubKey.end());
     }
 
-    if (!Solver(scriptPubKey, whichType, vSolutions)) {
+    COptCCParams p;
+    if (scriptPubKey.IsPayToCryptoCondition(p) && p.IsValid())
+    {
+        std::vector<CTxDestination> dests;
+        int minSigs;
+        bool canSign = false;
+        bool canSpend = false;
+
+        if (ExtractDestinations(scriptPubKey, whichType, dests, minSigs, &keystore, &canSign, &canSpend))
+        {
+            if (canSpend)
+            {
+                return ISMINE_SPENDABLE;
+            }
+            else if (canSign)
+            {
+                return ISMINE_WATCH_ONLY;
+            }
+            else
+            {
+                return ISMINE_NO;
+            }
+        }
+        else
+        {
+            return ISMINE_NO;
+        }
+    }
+    else if (!Solver(scriptPubKey, whichType, vSolutions))
+    {
         if (keystore.HaveWatchOnly(scriptPubKey))
             return ISMINE_WATCH_ONLY;
         return ISMINE_NO;

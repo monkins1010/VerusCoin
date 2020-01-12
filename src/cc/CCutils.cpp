@@ -87,33 +87,7 @@ CC *MakeCCcondAny(uint8_t evalcode, std::vector<CTxDestination> dests)
     return CCNewThreshold(2, {condCC, Sig});
 }
 
-CC *MakeCCcondMofN(uint8_t evalcode, const std::vector<CTxDestination> &dests, int M)
-{
-    std::vector<CC*> pks;
-    for (auto dest : dests)
-    {
-        CPubKey pk = boost::apply_visitor<GetPubKeyForPubKey>(GetPubKeyForPubKey(), dest);
-        if (pk.IsValid())
-        {
-            pks.push_back(CCNewSecp256k1(pk));
-        }
-        else
-        {
-            pks.push_back(CCNewHashedSecp256k1(CKeyID(GetDestinationID(dest))));
-        }
-    }
-
-    if (M > pks.size())
-    {
-        M = pks.size();
-    }
-
-    CC *condCC = CCNewEval(E_MARSHAL(ss << evalcode));
-    CC *Sig = CCNewThreshold(M, pks);
-    return CCNewThreshold(2, {condCC, Sig});
-}
-
-CTxOut MakeCC1vout(uint8_t evalcode,CAmount nValue,CPubKey pk)
+CTxOut MakeCC1vout(uint8_t evalcode, CAmount nValue, CPubKey pk)
 {
     CTxOut vout;
     CC *payoutCond = MakeCCcond1(evalcode,pk);
@@ -138,6 +112,7 @@ CC* GetCryptoCondition(CScript const& scriptSig)
     std::vector<unsigned char> ffbin;
     if (scriptSig.GetOp(pc, opcode, ffbin))
         return cc_readFulfillmentBinary((uint8_t*)ffbin.data(), ffbin.size()-1);
+    return nullptr;
 }
 
 bool IsCCInput(CScript const& scriptSig)
@@ -271,6 +246,7 @@ bool GetCCParams(Eval* eval, const CTransaction &tx, uint32_t nIn,
 
     if (myGetTransaction(tx.vin[nIn].prevout.hash, txOut, blockHash) && txOut.vout.size() > tx.vin[nIn].prevout.n)
     {
+        // must ensure that the block is valid and that this is a valid
         CBlockIndex index;
         if (eval->GetBlock(blockHash, index))
         {
@@ -443,7 +419,7 @@ CPubKey GetUnspendable(struct CCcontract_info *cp,uint8_t *unspendablepriv)
     return(pubkey2pk(ParseHex(cp->CChexstr)));
 }
 
-bool ProcessCC(struct CCcontract_info *cp,Eval* eval, std::vector<uint8_t> paramsNull,const CTransaction &ctx, unsigned int nIn)
+bool ProcessCC(struct CCcontract_info *cp,Eval* eval, std::vector<uint8_t> paramsNull,const CTransaction &ctx, unsigned int nIn, bool fulfilled)
 {
     CTransaction createTx; uint256 assetid,assetid2,hashBlock; uint8_t funcid; int32_t height,i,n,from_mempool = 0; int64_t amount; std::vector<uint8_t> origpubkey;
     height = KOMODO_CONNECTING;
@@ -468,7 +444,7 @@ bool ProcessCC(struct CCcontract_info *cp,Eval* eval, std::vector<uint8_t> param
         return eval->Invalid("Cannot have params");
     //else if ( ctx.vout.size() == 0 )      // spend can go to z-addresses
     //    return eval->Invalid("no-vouts");
-    else if ( (*cp->validate)(cp,eval,ctx,nIn) != 0 )
+    else if ( (*cp->validate)(cp, eval, ctx, nIn, fulfilled) != 0 )
     {
         //fprintf(stderr,"done CC %02x\n",cp->evalcode);
         //cp->prevtxid = txid;

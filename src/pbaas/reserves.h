@@ -28,9 +28,11 @@ class CBaseChainObject;
 class CReserveOutput
 {
 public:
-    static const uint32_t VALID = 1;
+    static const uint32_t CURRENCY_MASK = 0xffff;
+    static const uint32_t VALID = 0x10000;
+    static const uint32_t NATIVE = 0x8000;
 
-    uint32_t flags;
+    uint32_t flags;                 // information about this currency
     CAmount nValue;                 // amount of input reserve coins this UTXO represents before any conversion
 
     CReserveOutput(const std::vector<unsigned char> &asVector)
@@ -59,20 +61,30 @@ public:
 
     UniValue ToUniValue() const;
 
+    bool IsNative() const
+    {
+        return (flags & CURRENCY_MASK) == NATIVE;
+    }
+
+    int CurrencyIndex() const
+    {
+        return (flags & CURRENCY_MASK);
+    }
+
     bool IsValid() const
     {
-        // we don't support op returns
-        return (flags & VALID) && (nValue != 0);
+        // we don't support op returns, value must be in native or reserve
+        return (flags & VALID) && ((nValue != 0) || IsNative());
     }
 };
 
 class CReserveTransfer : public CReserveOutput
 {
 public:
-    static const uint32_t CONVERT = 2;
-    static const uint32_t PRECONVERT = 4;
-    static const uint32_t FEE_OUTPUT = 8;               // one per import, amount must match total percentage of fees for exporter, no pre-convert allowed
-    static const uint32_t SEND_BACK = 0x10;             // fee is sent back immediately to destination on exporting chain
+    static const uint32_t CONVERT = 0x80000;
+    static const uint32_t PRECONVERT = 0x100000;
+    static const uint32_t FEE_OUTPUT = 0x200000;        // one per import, amount must match total percentage of fees for exporter, no pre-convert allowed
+    static const uint32_t SEND_BACK = 0x400000;         // fee is sent back immediately to destination on exporting chain
 
     static const CAmount DEFAULT_PER_STEP_FEE = 10000;  // default fee for each step of each transfer (initial mining, transfer, mining on new chain)
 
@@ -123,11 +135,11 @@ class CReserveExchange : public CReserveOutput
 {
 public:
     // flags
-    static const int32_t TO_RESERVE = 8;        // from fractional currency to reserve, default is reserve to fractional
-    static const int32_t LIMIT = 0x10;           // observe the limit when converting
-    static const int32_t FILL_OR_KILL = 0x20;    // if not filled before nValidBefore but before expiry, no execution, mined with fee, output pass through
-    static const int32_t ALL_OR_NONE = 0x40;     // will not execute partial order
-    static const int32_t SEND_OUTPUT = 0x80;     // send the output of this exchange to the target chain, only valid if output is reserve
+    static const int32_t TO_RESERVE = 0x80000;      // from fractional currency to reserve, default is reserve to fractional
+    static const int32_t LIMIT = 0x100000;          // observe the limit when converting
+    static const int32_t FILL_OR_KILL = 0x200000;   // if not filled before nValidBefore but before expiry, no execution, mined with fee, output pass through
+    static const int32_t ALL_OR_NONE = 0x400000;    // will not execute partial order
+    static const int32_t SEND_OUTPUT = 0x800000;    // send the output of this exchange to the target chain, only valid if output is reserve
 
     // success fee is calculated by multiplying the amount by this number and dividing by satoshis (100,000,000), not less than 10x the absolute SUCCESS_FEE
     // failure fee, meaning the valid before block is past but it is not expired is the difference between input and output and must follow those rules
@@ -204,6 +216,9 @@ public:
     static const uint32_t IS_FILLORKILLFAIL=0x40; // If set, this is an expired fill or kill in a valid tx
     static const uint32_t IS_IMPORT=0x80;       // If set, this is an expired fill or kill in a valid tx
     static const uint32_t IS_EXPORT=0x100;      // If set, this is an expired fill or kill in a valid tx
+    static const uint32_t IS_IDENTITY=0x200;    // If set, this is an identity definition or update
+    static const uint32_t IS_IDENTITY_DEFINITION=0x400; // If set, this is an identity definition
+    static const uint32_t IS_HIGH_FEE=0x800;    // If set, this may have "absurdly high fees"
 
     const CTransaction *ptx;                    // pointer to the actual transaction if valid
     uint32_t flags;                             // indicates transaction state
@@ -245,6 +260,9 @@ public:
     bool IsFillOrKill() const { return flags & IS_FILLORKILL; }
     bool IsMarket() const { return IsReserveExchange() && !IsLimit(); }
     bool IsFillOrKillFail() const { return flags & IS_FILLORKILLFAIL; }
+    bool IsIdentity() const { return flags & IS_IDENTITY; }
+    bool IsIdentityDefinition() const { return flags & IS_IDENTITY_DEFINITION; }
+    bool IsHighFee() const { return flags & IS_HIGH_FEE; }
 
     static CAmount CalculateConversionFee(CAmount inputAmount);
     static CAmount CalculateAdditionalConversionFee(CAmount inputAmount);
@@ -392,12 +410,16 @@ public:
     static const int32_t SHUTDOWN_RESERVE_RATIO = 500000;   // if we hit this reserve ratio through selling and emission, initiate chain shutdown
     static const int32_t CONVERSION_TX_SIZE_MIN = 1024;
     static const int32_t CONVERSION_TX_SIZE_PEROUTPUT = 200;
+
     uint32_t flags;         // currency flags (valid, reserve currency, etc.)
+
     int32_t InitialRatio;   // starting point reserve percent for initial currency and emission, over SATOSHIs
     CAmount InitialSupply;  // initial supply as premine + pre-converted coins, this is used to establish the value at the initial ratio as well
     CAmount Emitted;        // unlike other supply variations, emitted coins reduce the reserve ratio and are used to calculate current ratio
     CAmount Supply;         // current supply - total of initial and all emitted coins
     CAmount Reserve;        // current reserve controlled by fractional chain - only non-zero for reserve currencies
+
+    //std::vector<CAmount> Reserves; // reserve currencies amounts controlled by this fractional chain - only present for reserve currencies, currency IDs are in chain definition
 
     CCurrencyState() : flags(0), InitialSupply(0), Emitted(0), Supply(0), Reserve(0) {}
 
@@ -487,6 +509,9 @@ public:
     // with the same price for all transactions in the block. It returns the newly calculated conversion price of the fractional 
     // reserve in the reserve currency.
     CAmount ConvertAmounts(CAmount inputReserve, CAmount inputFractional, CCurrencyState &newState) const;
+
+    // convert amounts for multi-reserve fractional reserve currencies
+    std::vector<CAmount> ConvertAmounts(const std::vector<CAmount> &inputReserve, CAmount inputFractional, CCurrencyState &newState) const;
 
     CAmount CalculateConversionFee(CAmount inputAmount, bool convertToNative = false) const;
     CAmount ReserveFeeToNative(CAmount inputAmount, CAmount outputAmount) const;

@@ -14,6 +14,7 @@ extern "C" {
 struct CC;
 struct CCType;
 
+#define MAX_BINARY_CC_SIZE 3072
 
 enum CCTypeId {
     CC_Anon = -1,
@@ -27,9 +28,9 @@ enum CCTypeId {
 
 
 /*
- * Evaliliary verification callback
+ * Evaliliary verification callback, fulfilled is zero if the node was not fulfilled in its signatures, 1 if it was
  */
-typedef int (*VerifyEval)(struct CC *cond, void *context);
+typedef int (*VerifyEval)(struct CC *cond, void *context, int fulfilled);
 
 
 
@@ -75,18 +76,25 @@ int             cc_verify(const struct CC *cond, const uint8_t *msg, size_t msgL
                         int doHashMessage, const uint8_t *condBin, size_t condBinLength,
                         VerifyEval verifyEval, void *evalContext, int checkSig);
 int             cc_visit(CC *cond, struct CCVisitor visitor);
+int             cc_isEvalVisitor(CCVisitor *visitor);
+void            cc_setEvalVisitorFulfilled(CCVisitor *visitor, int fulfilled);
+int             cc_isEvalVisitorFulfilled(CCVisitor *visitor);
+int             cc_countEvals(const CC *cond);
 int             cc_signTreeEd25519(CC *cond, const uint8_t *privateKey, const uint8_t *msg,
                         const size_t msgLength);
 int             cc_signTreeSecp256k1Msg32(CC *cond, const uint8_t *privateKey, const uint8_t *msg32);
 int             cc_secp256k1VerifyTreeMsg32(const CC *cond, const uint8_t *msg32);
-int             cc_secp256k1VerifyTreeMsg32_PartialCheck(const CC *cond, const unsigned char *msg32);
-size_t          cc_conditionBinary(const CC *cond, uint8_t *buf);
+size_t          cc_conditionBinary(const CC *cond, uint8_t *buf, int bufLen);
 size_t          cc_fulfillmentBinary(const CC *cond, uint8_t *buf, size_t bufLength);
+size_t          cc_partialFulfillmentBinary(const CC *cond, unsigned char *buf, size_t length);
 struct CC*      cc_conditionFromJSON(cJSON *params, char *err);
 struct CC*      cc_conditionFromJSONString(const char *json, char *err);
 struct CC*      cc_readConditionBinary(const uint8_t *cond_bin, size_t cond_bin_len);
 struct CC*      cc_readFulfillmentBinary(const uint8_t *ffill_bin, size_t ffill_bin_len);
+int             cc_MakeSecp256k1Signature(const unsigned char *msg32, const unsigned char *privateKey, unsigned char **signatureOut);
+int             cc_ApplySecp256k1Signature(const CC *cond, const unsigned char *publicKey, const unsigned char *pubkeyHash20, const unsigned char *signature);
 int             cc_readFulfillmentBinaryExt(const unsigned char *ffill_bin, size_t ffill_bin_len, CC **ppcc);
+int             cc_readPartialFulfillmentBinaryExt(const unsigned char *ffill_bin, size_t ffill_bin_len, CC **ppcc);
 struct CC*      cc_new(int typeId);
 struct cJSON*   cc_conditionToJSON(const CC *cond);
 char*           cc_conditionToJSONString(const CC *cond);

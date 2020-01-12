@@ -20,16 +20,24 @@
 #ifndef INCLUDE_VERUS_CLHASH_H
 #define INCLUDE_VERUS_CLHASH_H
 
-#include <cpuid.h>
+
 
 #include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
+
 #ifdef _WIN32
 #undef __cpuid
 #include <intrin.h>
+#endif
+
+#if defined(__arm__)  || defined(__aarch64__)
+#include "crypto/SSE2NEON.h"
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
 #else
+#include <cpuid.h>
 #include <x86intrin.h>
 #endif // !WIN32
 
@@ -54,7 +62,8 @@ enum {
     // Any excess over a power of 2 will not get mutated, and any excess over
     // power of 2 + Haraka sized key will not be used
     VERUSKEYSIZE=1024 * 8 + (40 * 16),
-    VERUSHHASH_SOLUTION_VERSION = 1
+    SOLUTION_VERUSHHASH_V2 = 1,          // this must be in sync with CScript::SOLUTION_VERUSV2
+    SOLUTION_VERUSHHASH_V2_1 = 3         // this must be in sync with CScript::ACTIVATE_VERUSHASH2_1
 };
 
 struct verusclhash_descr
@@ -91,12 +100,25 @@ extern thread_local thread_specific_ptr verusclhasher_descr;
 
 extern int __cpuverusoptimized;
 
+__m128i __verusclmulwithoutreduction64alignedrepeat(__m128i *randomsource, const __m128i buf[4], uint64_t keyMask, __m128i **pMoveScratch);
+__m128i __verusclmulwithoutreduction64alignedrepeat_sv2_1(__m128i *randomsource, const __m128i buf[4], uint64_t keyMask, __m128i **pMoveScratch);
+__m128i __verusclmulwithoutreduction64alignedrepeat_port(__m128i *randomsource, const __m128i buf[4], uint64_t keyMask, __m128i **pMoveScratch);
+__m128i __verusclmulwithoutreduction64alignedrepeat_sv2_1_port(__m128i *randomsource, const __m128i buf[4], uint64_t keyMask, __m128i **pMoveScratch);
+
 inline bool IsCPUVerusOptimized()
 {
+    #if defined(__arm__)  || defined(__aarch64__)
+    long hwcaps= getauxval(AT_HWCAP);
+
+    if((hwcaps & HWCAP_AES) && (hwcaps & HWCAP_PMULL))
+        __cpuverusoptimized = true;
+    else
+        __cpuverusoptimized = false;
+        
+    #else
     if (__cpuverusoptimized & 0x80)
     {
         unsigned int eax,ebx,ecx,edx;
-
         if (!__get_cpuid(1,&eax,&ebx,&ecx,&edx))
         {
             __cpuverusoptimized = false;
@@ -106,6 +128,7 @@ inline bool IsCPUVerusOptimized()
             __cpuverusoptimized = ((ecx & (bit_AVX | bit_AES | bit_PCLMUL)) == (bit_AVX | bit_AES | bit_PCLMUL));
         }
     }
+    #endif
     return __cpuverusoptimized;
 };
 
@@ -116,6 +139,8 @@ inline void ForceCPUVerusOptimized(bool trueorfalse)
 
 uint64_t verusclhash(void * random, const unsigned char buf[64], uint64_t keyMask, __m128i **pMoveScratch);
 uint64_t verusclhash_port(void * random, const unsigned char buf[64], uint64_t keyMask, __m128i **pMoveScratch);
+uint64_t verusclhash_sv2_1(void * random, const unsigned char buf[64], uint64_t keyMask, __m128i **pMoveScratch);
+uint64_t verusclhash_sv2_1_port(void * random, const unsigned char buf[64], uint64_t keyMask, __m128i **pMoveScratch);
 void *alloc_aligned_buffer(uint64_t bufSize);
 
 #ifdef __cplusplus
@@ -154,6 +179,7 @@ struct verusclhasher {
     uint64_t keySizeInBytes;
     uint64_t keyMask;
     uint64_t (*verusclhashfunction)(void * random, const unsigned char buf[64], uint64_t keyMask, __m128i **pMoveScratch);
+    __m128i (*verusinternalclhashfunction)(__m128i *randomsource, const __m128i buf[4], uint64_t keyMask, __m128i **pMoveScratch);
 
     static inline uint64_t keymask(uint64_t keysize)
     {
@@ -166,18 +192,36 @@ struct verusclhasher {
     }
 
     // align on 256 bit boundary at end
-    verusclhasher(uint64_t keysize=VERUSKEYSIZE) : keySizeInBytes((keysize >> 5) << 5)
+    verusclhasher(uint64_t keysize=VERUSKEYSIZE, int solutionVersion=SOLUTION_VERUSHHASH_V2) : keySizeInBytes((keysize >> 5) << 5)
     {
 #ifdef __APPLE__
        __tls_init();
 #endif
         if (IsCPUVerusOptimized())
         {
-            verusclhashfunction = &verusclhash;
+            if (solutionVersion >= SOLUTION_VERUSHHASH_V2_1)
+            {
+                verusclhashfunction = &verusclhash_sv2_1;
+                verusinternalclhashfunction = &__verusclmulwithoutreduction64alignedrepeat_sv2_1;
+            }
+            else
+            {
+                verusclhashfunction = &verusclhash;
+                verusinternalclhashfunction = &__verusclmulwithoutreduction64alignedrepeat;
+            }
         }
         else
         {
-            verusclhashfunction = &verusclhash_port;
+            if (solutionVersion >= SOLUTION_VERUSHHASH_V2_1)
+            {
+                verusclhashfunction = &verusclhash_sv2_1_port;
+                verusinternalclhashfunction = &__verusclmulwithoutreduction64alignedrepeat_sv2_1_port;
+            }
+            else
+            {
+                verusclhashfunction = &verusclhash_port;
+                verusinternalclhashfunction = &__verusclmulwithoutreduction64alignedrepeat_port;
+            }
         }
 
         // if we changed, change it

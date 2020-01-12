@@ -40,6 +40,7 @@
 #include "uint256.h"
 #include "hash.h"
 #include "pbaas/crosschainrpc.h"
+#include "pbaas/identity.h"
 
 using namespace std;
 
@@ -233,6 +234,18 @@ UniValue RPCCallRoot(const string& strMethod, const UniValue& params, int timeou
     return UniValue(UniValue::VNULL);
 }
 
+bool uni_get_bool(UniValue uv, bool def)
+{
+    try
+    {
+        return uv.get_bool();
+    }
+    catch(const std::exception& e)
+    {
+        return def;
+    }
+}
+
 int32_t uni_get_int(UniValue uv, int32_t def)
 {
     try
@@ -290,22 +303,3 @@ UniValue CCrossChainRPCData::ToUniValue() const
     return obj;
 }
 
-uint160 CCrossChainRPCData::GetConditionID(uint160 cid, int32_t condition)
-{
-    CHashWriter hw(SER_GETHASH, PROTOCOL_VERSION);
-    hw << condition;
-    hw << cid;
-    uint256 chainHash = hw.GetHash();
-    return Hash160(chainHash.begin(), chainHash.end());
-}
-
-uint160 CCrossChainRPCData::GetConditionID(std::string name, int32_t condition)
-{
-    uint160 cid = GetChainID(name);
-
-    CHashWriter hw(SER_GETHASH, PROTOCOL_VERSION);
-    hw << condition;
-    hw << cid;
-    uint256 chainHash = hw.GetHash();
-    return Hash160(chainHash.begin(), chainHash.end());
-}

@@ -249,7 +249,7 @@ void GenerateBitcoins(bool b, int t);
 
 UniValue stop(const UniValue& params, bool fHelp)
 {
-    char buf[64];
+    char buf[100];
    // Accept the deprecated and ignored 'detach' boolean argument
     if (fHelp || params.size() > 1)
         throw runtime_error(

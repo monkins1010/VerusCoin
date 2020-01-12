@@ -18,11 +18,14 @@ private:
     bool store;
 
 public:
-    ServerTransactionSignatureChecker(const CTransaction* txToIn, unsigned int nIn, const CAmount& amount, bool storeIn, const PrecomputedTransactionData& txdataIn) : TransactionSignatureChecker(txToIn, nIn, amount, txdataIn), store(storeIn) {}
-    ServerTransactionSignatureChecker(const CTransaction* txToIn, unsigned int nIn, const CAmount& amount, bool storeIn) : TransactionSignatureChecker(txToIn, nIn, amount), store(storeIn) {}
+    ServerTransactionSignatureChecker(const CTransaction* txToIn, unsigned int nIn, const CAmount& amount, bool storeIn, const PrecomputedTransactionData& txdataIn) : TransactionSignatureChecker(txToIn, nIn, amount, txdataIn), store(storeIn) { idMapSet = true; }
+    ServerTransactionSignatureChecker(const CTransaction* txToIn, unsigned int nIn, const CAmount& amount, bool storeIn) : TransactionSignatureChecker(txToIn, nIn, amount), store(storeIn) { idMapSet = true; }
+
+    static std::map<uint160, std::pair<int, std::vector<std::vector<unsigned char>>>> ExtractIDMap(const CScript &scriptPubKeyIn, uint32_t spendHeight);
+    bool CanValidateIDs() const { return true; }
 
     bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
-    int CheckEvalCondition(const CC *cond) const;
+    int CheckEvalCondition(const CC *cond, int fulfilled) const;
 };
 
 #endif // BITCOIN_SCRIPT_SERVERCHECKER_H
