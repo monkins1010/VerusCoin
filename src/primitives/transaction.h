@@ -1236,7 +1236,7 @@ public:
     };
     int8_t version;                                     // to enable versioning of this type of proof
     int8_t type;                                        // this may represent transactions from different systems
-    CMMRProof txProof;                                  // proof of the transaction in its block, either normal Merkle pre-PBaaS, or MMR partial post
+    CMMRProof txProof;                                  // proof of the transaction in its block, either normal Merkle pre-PBaaS,MMR partial post, or PATRICIA Trie
     std::vector<CTransactionComponentProof> components; // each component (or TX for older blocks) to prove
 
     CPartialTransactionProof() : version(VERSION_CURRENT), type(TYPE_PBAAS) {}

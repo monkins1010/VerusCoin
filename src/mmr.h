@@ -308,7 +308,8 @@ public:
         BRANCH_INVALID = 0,
         BRANCH_BTC = 1,
         BRANCH_MMRBLAKE_NODE = 2,
-        BRANCH_MMRBLAKE_POWERNODE = 3
+        BRANCH_MMRBLAKE_POWERNODE = 3,
+        BRANCH_ETH = 4
     };
 
     uint8_t branchType;
@@ -412,6 +413,7 @@ public:
 typedef CMMRBranch<CBLAKE2bWriter> CMMRNodeBranch;
 typedef CMMRBranch<CBLAKE2bWriter, CMMRPowerNode<CBLAKE2bWriter>> CMMRPowerNodeBranch;
 
+
 // by default, this is compatible with normal merkle proofs with the existing
 // block merkle roots. different hash algorithms may be selected for performance,
 // security, or other purposes
@@ -487,6 +489,79 @@ public:
 };
 typedef CMerkleBranch<CHashWriter> CBTCMerkleBranch;
 
+template <typename HASHALGOWRITER=CKeccack256Writer, typename NODETYPE=CMMRNode<HASHALGOWRITER>>
+class CPATRICIABranch : public CMerkleBranchBase
+{
+public:
+    uint32_t nIndex;                // index of the element
+    std::vector<uint256> branch;
+    uint32_t nSize;  
+
+    CPATRICIABranch() : nIndex(0) {}
+    CPATRICIABranch(int i, std::vector<uint256> b) : nIndex(i), branch(b) {}
+
+    CPATRICIABranch& operator<<(CPATRICIABranch append)
+    {
+        nIndex += append.nIndex << branch.size();
+        branch.insert(branch.end(), append.branch.begin(), append.branch.end());
+        return *this;
+    }
+
+    ADD_SERIALIZE_METHODS;
+    
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(*(CMerkleBranchBase *)this);
+        READWRITE(VARINT(nIndex));
+        READWRITE(branch);
+    }
+
+    std::string HashAbbrev(uint256 hash) const
+    {
+        std::string ret;
+        for (int i = 0; i < 5; i++)
+        {
+            ret += " " + std::to_string(*((uint8_t *)&hash + i));
+        }
+        return ret;
+    }
+
+    // extraHashes are the count of additional elements, such as work or power, to also incorporate into the hash tree
+    uint256 SafeCheck(uint256 hash) const
+    {
+        HASHALGOWRITER hw(SER_GETHASH, 0);
+        int64_t index = nIndex;
+
+        if (index == -1)
+            return uint256();
+
+        // printf("start SafeCheck branch.size(): %lu, index: %lu, hash: %s\n", branch.size(), index, HashAbbrev(hash).c_str());
+        for (auto it(branch.begin()); it != branch.end(); ++it)
+        {
+            if (index & 1) 
+            {
+                if (*it == hash) 
+                {
+                    // non canonical. hash may be equal to node but never on the right.
+                    return uint256();
+                }
+                hw << *it;
+                hw << hash;
+            }
+            else
+            {
+                hw << hash;
+                hw << *it;
+            }
+            hash = hw.GetHash();
+            index >>= 1;
+        }
+        // printf("end SafeCheck\n");
+        return hash;
+    }
+};
+typedef CPATRICIABranch<CHashWriter> CETHPATRICIABranch;
+
 class CMMRProof
 {
 public:
@@ -540,6 +615,7 @@ public:
                         CMMRNodeBranch *pNodeBranch;
                         CMMRPowerNodeBranch *pPowerNodeBranch;
                         CMerkleBranchBase *pobj;
+                        CETHPATRICIABranch *pETHBranch;
                     };
 
                     // non-error exception comes from the first try on each object. after this, it is an error
@@ -572,6 +648,16 @@ public:
                             if (pPowerNodeBranch)
                             {
                                 READWRITE(*pPowerNodeBranch);
+                            }
+                            error = false;
+                            break;
+                        }
+                        case CMerkleBranchBase::BRANCH_ETH:
+                        {
+                            pETHBranch = new CETHPATRICIABranch();
+                            if (pETHBranch)
+                            {
+                                READWRITE(*pETHBranch);
                             }
                             error = false;
                             break;
@@ -629,6 +715,11 @@ public:
                         READWRITE(*(CMMRPowerNodeBranch *)pProof);
                         break;
                     }
+                    case CMerkleBranchBase::BRANCH_ETH:
+                    {
+                        READWRITE(*(CETHPATRICIABranch *)pProof);
+                        break;
+                    }
                     default:
                     {
                         error = true;
@@ -644,6 +735,7 @@ public:
     const CMMRProof &operator<<(const CBTCMerkleBranch &append);
     const CMMRProof &operator<<(const CMMRNodeBranch &append);
     const CMMRProof &operator<<(const CMMRPowerNodeBranch &append);
+    const CMMRProof &operator<<(const CETHPATRICIABranch &append);
     uint256 CheckProof(uint256 checkHash) const;
     UniValue ToUniValue() const;
 };
