@@ -25,6 +25,7 @@
 #include "streams.h"
 #include "hash.h"
 #include "arith_uint256.h"
+#include "ETH.h"
 
 #ifndef BEGIN
 #define BEGIN(a)            ((char*)&(a))
@@ -493,71 +494,40 @@ template <typename HASHALGOWRITER=CKeccack256Writer, typename NODETYPE=CMMRNode<
 class CPATRICIABranch : public CMerkleBranchBase
 {
 public:
-    uint32_t nIndex;                // index of the element
-    std::vector<uint256> branch;
-    uint32_t nSize;  
+    std::vector<std::vector<unsigned char>> accountProof;
+    std::vector<unsigned char> address;
+    uint64_t balance;
+    std::vector<unsigned char> codeHash;
+    uint64_t nonce;
+    uint256 storageHash;
+    std::vector<unsigned char> storageProofKey;
+    std::vector<std::vector<unsigned char>> storageProof;
+    std::vector<unsigned char> storageProofValue;
+    uint256 stateRoot;
 
-    CPATRICIABranch() : nIndex(0) {}
-    CPATRICIABranch(int i, std::vector<uint256> b) : nIndex(i), branch(b) {}
-
-    CPATRICIABranch& operator<<(CPATRICIABranch append)
-    {
-        nIndex += append.nIndex << branch.size();
-        branch.insert(branch.end(), append.branch.begin(), append.branch.end());
-        return *this;
-    }
+    CPATRICIABranch() : {}
+    CPATRICIABranch(std::vector<std::vector<unsigned char>> a, std::vector<std::vector<unsigned char>> b) : accountProof(a), storageProof(b) {}
 
     ADD_SERIALIZE_METHODS;
     
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(*(CMerkleBranchBase *)this);
-        READWRITE(VARINT(nIndex));
-        READWRITE(branch);
-    }
-
-    std::string HashAbbrev(uint256 hash) const
-    {
-        std::string ret;
-        for (int i = 0; i < 5; i++)
-        {
-            ret += " " + std::to_string(*((uint8_t *)&hash + i));
-        }
-        return ret;
     }
 
     // extraHashes are the count of additional elements, such as work or power, to also incorporate into the hash tree
     uint256 SafeCheck(uint256 hash) const
     {
-        HASHALGOWRITER hw(SER_GETHASH, 0);
-        int64_t index = nIndex;
+      EthereumProof *verify = new EthereumProof(this*);
 
-        if (index == -1)
-            return uint256();
+      std::vector<unsigned char> result;
+      result = verify.verifyAccountProof();
+      uint256 result_256;
+      std::copy(result.begin(), result.end(), &result_256);
 
-        // printf("start SafeCheck branch.size(): %lu, index: %lu, hash: %s\n", branch.size(), index, HashAbbrev(hash).c_str());
-        for (auto it(branch.begin()); it != branch.end(); ++it)
-        {
-            if (index & 1) 
-            {
-                if (*it == hash) 
-                {
-                    // non canonical. hash may be equal to node but never on the right.
-                    return uint256();
-                }
-                hw << *it;
-                hw << hash;
-            }
-            else
-            {
-                hw << hash;
-                hw << *it;
-            }
-            hash = hw.GetHash();
-            index >>= 1;
-        }
-        // printf("end SafeCheck\n");
-        return hash;
+      return result_256;
+
+
     }
 };
 typedef CPATRICIABranch<CHashWriter> CETHPATRICIABranch;

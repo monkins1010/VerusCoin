@@ -215,6 +215,7 @@ BITCOIN_CORE_H = \
   miner.h \
   pbaasrpc.h \
   mmr.h \
+  ETH.h \
   mruset.h \
   net.h \
   netbase.h \
@@ -539,6 +540,7 @@ libbitcoin_common_a_SOURCES = \
   netbase.cpp \
   metrics.cpp \
   mmr.cpp \
+  ETH.cpp \
   pbaas/crosschainrpc.cpp \
   pbaas/vdxf.cpp \
   primitives/block.cpp \
