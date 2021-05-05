@@ -25,7 +25,7 @@
 #include "streams.h"
 #include "hash.h"
 #include "arith_uint256.h"
-#include "ETH.h"
+
 
 #ifndef BEGIN
 #define BEGIN(a)            ((char*)&(a))
@@ -490,6 +490,7 @@ public:
 };
 typedef CMerkleBranch<CHashWriter> CBTCMerkleBranch;
 
+
 template <typename HASHALGOWRITER=CKeccack256Writer, typename NODETYPE=CMMRNode<HASHALGOWRITER>>
 class CPATRICIABranch : public CMerkleBranchBase
 {
@@ -505,9 +506,20 @@ public:
     std::vector<unsigned char> storageProofValue;
     uint256 stateRoot;
 
-    CPATRICIABranch() : {}
+    CPATRICIABranch() {}
     CPATRICIABranch(std::vector<std::vector<unsigned char>> a, std::vector<std::vector<unsigned char>> b) : accountProof(a), storageProof(b) {}
+    
+    CPATRICIABranch& operator<<(CPATRICIABranch append)
+    {
+        //TODO
+        return *this;
+    }
 
+    std::vector<unsigned char> verifyAccountProof();
+    std::vector<unsigned char> verifyProof(uint256& rootHash,std::vector<unsigned char> key,std::vector<std::vector<unsigned char>>& proof);
+    std::vector<unsigned char> verifyStorageProof();
+    bool verifyStorageValue(std::vector<unsigned char> testStorageValue);
+    
     ADD_SERIALIZE_METHODS;
     
     template <typename Stream, typename Operation>
@@ -516,12 +528,11 @@ public:
     }
 
     // extraHashes are the count of additional elements, such as work or power, to also incorporate into the hash tree
-    uint256 SafeCheck(uint256 hash) const
+    uint256 SafeCheck(uint256 hash) 
     {
-      EthereumProof *verify = new EthereumProof(this*);
-
+      
       std::vector<unsigned char> result;
-      result = verify.verifyAccountProof();
+      result = verifyAccountProof();
       uint256 result_256;
       std::copy(result.begin(), result.end(), &result_256);
 
@@ -531,6 +542,55 @@ public:
     }
 };
 typedef CPATRICIABranch<CHashWriter> CETHPATRICIABranch;
+
+class RLP {
+
+
+
+    public:
+
+    struct rlpDecoded {
+        std::vector<std::vector<unsigned char>> data;
+        std::vector<unsigned char> remainder; 
+    };
+
+    std::vector<unsigned char> encodeLength(int length,int offset);
+    std::vector<unsigned char> encode(std::vector<unsigned char> input);
+    std::vector<unsigned char> encode(std::vector<std::vector<unsigned char>> input);
+    rlpDecoded decode(std::vector<unsigned char> inputBytes);
+    rlpDecoded decode(std::string inputString);
+};
+
+class TrieNode {
+
+    public: 
+    enum nodeType{
+        BRANCH,
+        LEAF,
+        EXTENSION
+    };
+    nodeType type;
+    std::vector<std::vector<unsigned char>> raw;
+    std::vector<unsigned char> key;
+    std::vector<unsigned char> value;
+
+    TrieNode(std::vector<std::vector<unsigned char>> rawNode) {
+        raw = rawNode;
+        type = setType();
+        setKey();
+        setValue();
+    }
+
+
+
+    private: 
+    nodeType setType();
+    void setKey(){}
+    void setValue(){}
+
+};
+
+
 
 class CMMRProof
 {
@@ -1316,5 +1376,6 @@ public:
         return Bits;
     }
 };
+
 
 #endif // MMR_H

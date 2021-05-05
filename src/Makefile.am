@@ -215,7 +215,6 @@ BITCOIN_CORE_H = \
   miner.h \
   pbaasrpc.h \
   mmr.h \
-  ETH.h \
   mruset.h \
   net.h \
   netbase.h \
