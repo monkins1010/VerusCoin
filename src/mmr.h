@@ -534,7 +534,7 @@ public:
       std::vector<unsigned char> result;
       result = verifyAccountProof();
       uint256 result_256;
-      std::copy(result.begin(), result.end(), &result_256);
+      memcpy(&result_256, &result, 32);
 
       return result_256;
 
@@ -585,8 +585,8 @@ class TrieNode {
 
     private: 
     nodeType setType();
-    void setKey(){}
-    void setValue(){}
+    void setKey();
+    void setValue();
 
 };
 

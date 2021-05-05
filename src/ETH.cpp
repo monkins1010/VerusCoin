@@ -308,7 +308,7 @@ RLP::rlpDecoded RLP::decode(std::string inputString){
 
 
 
-
+template<>
 std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std::vector<unsigned char> key,std::vector<std::vector<unsigned char>>& proof){
 
     uint256 wantedHash = rootHash;
@@ -371,7 +371,7 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
                 return embeddedNode.value;
             } else {
                 uint256 tmp_child;
-                std::copy(child.begin(),child.end(),tmp_child);
+                memcpy(&tmp_child,&child,sizeof(child));
                 wantedHash = tmp_child;
             } 
         } else if(node.type == node.EXTENSION || node.type == node.LEAF){
@@ -393,7 +393,7 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
                 return child;
             } else {
                 uint256 tmp_child;
-                std::copy(child.begin(),child.end(),tmp_child);
+                memcpy(&tmp_child,&child,sizeof(child));
                 wantedHash = tmp_child;
             }
             
@@ -406,76 +406,78 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
 }
 
 
+template<>
+std::vector<unsigned char> CPATRICIABranch<CHashWriter>::verifyAccountProof(){
+    
+    CKeccack256Writer key_hasher;
+    key_hasher.write((const char *)&(address),32);
+    uint256 key_hash = key_hasher.GetHash();
+    std::vector<unsigned char> address_hash(key_hash.begin(),key_hash.end());
+    //create key from account address
+    try{
+        return verifyProof(stateRoot,address_hash,accountProof);
+    }catch(const std::exception& e){
+        std::cerr << "exception: " << e.what() << std::endl;
+        throw std::runtime_error(std::string("verifyAccountProof"));
+    }
 
-    std::vector<unsigned char> CETHPATRICIABranch::verifyAccountProof(){
+}
+
+template<>
+std::vector<unsigned char> CPATRICIABranch<CHashWriter>::verifyStorageProof(){
+    //check that the 
+    //test the account proof
+    RLP rlp;
+    std::vector<unsigned char> accountValue;
+    try{
+        accountValue = verifyAccountProof();
+    }
+    catch(const std::exception& e){
+        if(accountValue.size() == 0){
         
-        CKeccack256Writer key_hasher;
-        key_hasher.write((const char *)&(address),32);
-        uint256 key_hash = key_hasher.GetHash();
-        std::vector<unsigned char> address_hash(key_hash.begin(),key_hash.end());
-        //create key from account address
-        try{
-            return verifyProof(stateRoot,address_hash,accountProof);
-        }catch(const std::exception& e){
             std::cerr << "exception: " << e.what() << std::endl;
-            throw std::runtime_error(std::string("verifyAccountProof"));
+            throw std::runtime_error(std::string("Account proof failed"));
         }
+    }
+    //rlp encode the nonce , account balance , storageRootHash and codeHash
+    std::vector<unsigned char> encodedAccount;
+    std::vector<unsigned char> storage(storageHash.begin(),storageHash.end());
+    try{
+        std::vector<std::vector<unsigned char>> toEncode;
+        toEncode.push_back(parse_string(uint64_to_hex(nonce)));
+        toEncode.push_back(parse_string(uint64_to_hex(balance)));
+        toEncode.push_back(storage);
+        toEncode.push_back(codeHash);
+        encodedAccount = rlp.encode(toEncode);
 
+    }catch(const std::exception& e){
+        throw std::runtime_error(std::string("RLP Encode of Account failed"));
+    }
+    //confim that the encoded account details match those stored in the proof
+
+    if(encodedAccount != accountValue){
+        throw std::runtime_error(std::string("Encoded Account does not match the proof"));
+    }
+    //run the storage proof
+    std::vector<unsigned char> storageValue;
+    try{
+    storageValue = verifyProof(storageHash,storageProofKey,storageProof);
+    
+    }catch(const std::exception& e){
+        throw std::runtime_error(std::string("VerifyProof Routine failed"));
     }
 
-    std::vector<unsigned char> CETHPATRICIABranch::verifyStorageProof(){
-        //check that the 
-        //test the account proof
-        RLP rlp;
-        std::vector<unsigned char> accountValue;
-        try{
-            accountValue = verifyAccountProof();
-        }
-        catch(const std::exception& e){
-            if(accountValue.size() == 0){
-            
-                std::cerr << "exception: " << e.what() << std::endl;
-                throw std::runtime_error(std::string("Account proof failed"));
-            }
-        }
-        //rlp encode the nonce , account balance , storageRootHash and codeHash
-        std::vector<unsigned char> encodedAccount;
-        std::vector<unsigned char> storage(storageHash.begin(),storageHash.end());
-        try{
-            std::vector<std::vector<unsigned char>> toEncode;
-            toEncode.push_back(parse_string(uint64_to_hex(nonce)));
-            toEncode.push_back(parse_string(uint64_to_hex(balance)));
-            toEncode.push_back(storage);
-            toEncode.push_back(codeHash);
-            encodedAccount = rlp.encode(toEncode);
+    RLP::rlpDecoded decodedValue = rlp.decode(bytes_to_hex(storageValue));
 
-        }catch(const std::exception& e){
-            throw std::runtime_error(std::string("RLP Encode of Account failed"));
-        }
-        //confim that the encoded account details match those stored in the proof
-
-        if(encodedAccount != accountValue){
-            throw std::runtime_error(std::string("Encoded Account does not match the proof"));
-        }
-        //run the storage proof
-        std::vector<unsigned char> storageValue;
-        try{
-        storageValue = verifyProof(storageHash,storageProofKey,storageProof);
-        
-        }catch(const std::exception& e){
-            throw std::runtime_error(std::string("VerifyProof Routine failed"));
-        }
-
-        RLP::rlpDecoded decodedValue = rlp.decode(bytes_to_hex(storageValue));
-
-        if(decodedValue.data[0] != storageProofValue){
-            throw std::runtime_error(std::string("StorageValue does not match the proof"));
-        }
-        return storageValue;
+    if(decodedValue.data[0] != storageProofValue){
+        throw std::runtime_error(std::string("StorageValue does not match the proof"));
     }
+    return storageValue;
+}
 
-    bool CETHPATRICIABranch::verifyStorageValue(std::vector<unsigned char> testStorageValue){
-        if(testStorageValue == storageProofValue) return true;
-        return false;
-    }
+template<>
+bool CETHPATRICIABranch::verifyStorageValue(std::vector<unsigned char> testStorageValue){
+    if(testStorageValue == storageProofValue) return true;
+    return false;
+}
 
