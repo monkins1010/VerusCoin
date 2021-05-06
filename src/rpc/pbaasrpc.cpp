@@ -1797,6 +1797,12 @@ UniValue getlastimportfrom(const UniValue& params, bool fHelp)
 
 UniValue getimports(const UniValue& params, bool fHelp)
 {
+    
+    CETHPATRICIABranch test;
+    
+    test.testProof();
+    printf("%s: TestPATRICIAtree decode\n", __func__);
+    
     if (fHelp || params.size() != 1)
     {
         throw runtime_error(

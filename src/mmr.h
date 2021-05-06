@@ -501,7 +501,7 @@ public:
     std::vector<unsigned char> codeHash;
     uint64_t nonce;
     uint256 storageHash;
-    std::vector<unsigned char> storageProofKey;
+    uint256 storageProofKey;
     std::vector<std::vector<unsigned char>> storageProof;
     std::vector<unsigned char> storageProofValue;
     uint256 stateRoot;
@@ -519,7 +519,8 @@ public:
     std::vector<unsigned char> verifyProof(uint256& rootHash,std::vector<unsigned char> key,std::vector<std::vector<unsigned char>>& proof);
     std::vector<unsigned char> verifyStorageProof();
     bool verifyStorageValue(std::vector<unsigned char> testStorageValue);
-    
+    bool testProof();
+
     ADD_SERIALIZE_METHODS;
     
     template <typename Stream, typename Operation>
