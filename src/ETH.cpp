@@ -325,19 +325,14 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
     uint256 wantedHash = rootHash;
     RLP rlp;
 
-    CKeccack256Writer key_hasher;
-
     key = toNibbles(key);
     //loop through each element in the proof
     for(std::size_t i=0; i< proof.size(); ++i)  {
 
         //check to see if the hash of the node matches the expected hash
-                                
-        key_hasher.Reset();
-        key_hasher.write((const char*)&proof[i].at(0),proof[i].size());
-        uint256 tmp_hash = key_hasher.GetHash();
+        CKeccack256Writer writer(proof[i]);
 
-        if(tmp_hash != wantedHash){
+        if(writer.GetHash() != wantedHash){
             std::string error("Bad proof node: i=");
             error += std::to_string(i);
             throw std::runtime_error(error);
@@ -420,8 +415,7 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
 template<>
 std::vector<unsigned char> CPATRICIABranch<CHashWriter>::verifyAccountProof(){
     
-    CKeccack256Writer key_hasher;
-    key_hasher.write((const char*)&address.at(0),address.size());
+    CKeccack256Writer key_hasher(address);
     uint256 key_hash = key_hasher.GetHash();
     std::vector<unsigned char> address_hash(key_hash.begin(),key_hash.end());
     //create key from account address

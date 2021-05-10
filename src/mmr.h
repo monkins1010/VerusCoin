@@ -505,13 +505,14 @@ public:
     std::vector<std::vector<unsigned char>> storageProof;
     std::vector<unsigned char> storageProofValue;
     uint256 stateRoot;
-
+    std::vector<uint256> branch;
     CPATRICIABranch() {}
     CPATRICIABranch(std::vector<std::vector<unsigned char>> a, std::vector<std::vector<unsigned char>> b) : accountProof(a), storageProof(b) {}
     
     CPATRICIABranch& operator<<(CPATRICIABranch append)
     {
         //TODO
+        branch.insert(branch.end(), append.branch.begin(), append.branch.end());
         return *this;
     }
 
@@ -528,14 +529,16 @@ public:
         READWRITE(*(CMerkleBranchBase *)this);
     }
 
-    // extraHashes are the count of additional elements, such as work or power, to also incorporate into the hash tree
+    
     uint256 SafeCheck(uint256 hash) 
     {
-      
+     //TODO
+     //this verify sequqnce is expecting the Patrica tree proof to be in RLP encoded format from the Ethereum Chain 
+     //The global variables of the class should be populated before the proof is performed
       std::vector<unsigned char> result;
       result = verifyAccountProof();
       uint256 result_256;
-      memcpy(&result_256, &result, 32);
+      memcpy(&result_256, &result.at(0), 32);
 
       return result_256;
 

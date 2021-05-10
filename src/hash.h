@@ -387,6 +387,11 @@ private:
 public:
   
     CKeccack256Writer() { sph_keccak256_init(&ctx_keccak); }
+    CKeccack256Writer(const std::vector<unsigned char>& vector) { 
+        sph_keccak256_init(&ctx_keccak), 
+        sph_keccak256 (&ctx_keccak, (const char*)&vector.at(0), vector.size());
+        }
+
 
     void Reset() { sph_keccak256_init(&ctx_keccak); }
 
@@ -402,7 +407,6 @@ public:
         return result;
     }
 
-    
     sph_keccak256_context &GetState() { return ctx_keccak; }
 
     template<typename T>
