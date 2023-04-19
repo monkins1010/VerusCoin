@@ -661,7 +661,7 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                             if (uint160(importFromDef.nativeCurrencyID.destination) != EthProof.GetNativeAddress())
                             if (uint160(importFromDef.nativeCurrencyID.destination) != EthProof.GetNativeAddress())
                             {
-                                LogPrintf("%s: Invalid ETH storage address, Found: %s in AuxDest, got %s from proof", __func__,
+                                LogPrintf("%s: Invalid ETH storage address, Found: %s, got %s from proof", __func__,
                                 CTransferDestination::EncodeEthDestination(uint160(importFromDef.nativeCurrencyID.destination)),
                                 CTransferDestination::EncodeEthDestination(EthProof.GetNativeAddress()));
                                 return state.Error(strprintf("%s: invalid ETH storage address", __func__));
