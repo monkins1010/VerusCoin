@@ -577,6 +577,7 @@ CTransferDestination CTransferDestination::GetAuxDest(int destNum) const
             case DEST_PK:
             case DEST_PKH:
             case DEST_ETH:
+            case DEST_SOL:
             case DEST_SH:
                 break;
             default:

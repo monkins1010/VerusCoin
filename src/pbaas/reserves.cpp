@@ -644,7 +644,7 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                     }
                     return state.Error(strprintf("%s: invalid export evidence for import", __func__));
                 }
-
+                //TODO: SOL - Add PROOF_SOLNOTARIZATION support here
                 if (importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION)
                 {
                     if (transactionProof.evidence.chainObjects.size() &&
@@ -3902,6 +3902,7 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
             // an extremely expensive single ID on specific chain DoS.
             CIdentity preexistingID = CIdentity::LookupIdentity(FirstCurrency());
             CCurrencyDefinition systemCurrency = ConnectedChains.GetCachedCurrency(registeredCurrency.systemID);
+            //TODO: SOL - Add solana check here
             if (preexistingID.IsValid() &&
                 (preexistingID.parent != registeredCurrency.parent ||
                  ((preexistingID.systemID != registeredCurrency.systemID &&
@@ -3988,7 +3989,7 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
 
             CCurrencyDefinition preexistingCurrency = ConnectedChains.GetCachedCurrency(importedID.GetID());
             CCurrencyDefinition systemCurrency = ConnectedChains.GetCachedCurrency(preexistingCurrency.systemID);
-
+            //TODO: SOL - Add solana check here
             if (!idCollision &&
                 preexistingCurrency.IsValid() &&
                 (importedID.parent != preexistingCurrency.parent ||
@@ -4118,6 +4119,7 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
         // make normal output to the destination, which must be valid
         // if destination is not valid, and we are supposed to make an output
         // to an ETH address, make a nested output instead
+        //TODO: SOL - Create a solana check here
         if (dest.which() == COptCCParams::ADDRTYPE_INVALID && destination.TypeNoFlags() == destination.DEST_ETH)
         {
             // we make an unspendable P2SH output with the ETH address as the P2SH value

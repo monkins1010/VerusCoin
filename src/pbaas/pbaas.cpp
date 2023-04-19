@@ -690,6 +690,7 @@ bool PrecheckCrossChainImport(const CTransaction &tx, int32_t outNum, CValidatio
             // 2) a gateway that had no delay before startblock
             // 3) self-currency definition
             // 4) mapped currency definition (different systemID than launchSystemID, ETH proof protocol, DEST_ETH or DEST_ETHNFT nativeCurrencyID)
+            // TODO: SOL - Handle a solana contract upgrade type
             if (notarization.IsLaunchComplete())
             {
                 if (height != 1 &&
@@ -4036,7 +4037,7 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                     LogPrint("currencydefinition", "%s: Currency definition in output violates current definition rules.\n%s\n", __func__, newCurrency.ToUniValue().write(1,2).c_str());
                     return state.Error("Currency definition in output violates current definition rules");
                 }
-
+                //TODO: SOL - check for sol type currency definition
                 bool isMappedCurrency = (newCurrency.systemID != ASSETCHAINS_CHAINID &&
                                          newCurrency.IsToken() &&
                                          !newCurrency.IsFractional() &&
@@ -4189,6 +4190,7 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                     if (failed)
                     {
                         newSystemCurrency = ConnectedChains.GetCachedCurrency(newCurrency.systemID);
+                        //TODO: - SOL Add solana support
                         if (newSystemCurrency.IsGateway() &&
                             newCurrency.systemID == newSystemCurrency.GetID() &&
                             (newCurrency.parent == ASSETCHAINS_CHAINID ||
@@ -4439,7 +4441,7 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                 {
                     return state.Error("Only gateway and root chain identities may create non-NFT currencies");
                 }
-
+                //TODO: - SOL Add solana support
                 if (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH &&
                     !(systemDef.proofProtocol == systemDef.PROOF_ETHNOTARIZATION &&
                       newCurrency.maxPreconvert.size() == 1 &&
@@ -5486,6 +5488,7 @@ bool PrecheckReserveTransfer(const CTransaction &tx, int32_t outNum, CValidation
             {
                 int destType = rt.destination.TypeNoFlags();
                 CTxDestination dest = TransferDestinationToDestination(rt.destination);
+                //TODO: SOL - Add support for solana contract type addresses.
                 if (destType == rt.destination.DEST_ETH)
                 {
                     uint160 ethDest;
