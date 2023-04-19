@@ -23,6 +23,7 @@
 #include "boost/algorithm/string.hpp"
 #include "pbaas/vdxf.h"
 #include "utilstrencodings.h"
+#include "base58.h"
 
 static const int DEFAULT_RPC_TIMEOUT=900;
 static const uint32_t PBAAS_VERSION = 1;
@@ -203,7 +204,8 @@ public:
         DEST_ETH = 9,
         DEST_ETHNFT = 10,                   // used when defining a mapped NFT to gateway that uses an ETH compatible model
         DEST_RAW = 11,
-        LAST_VALID_TYPE_NO_FLAGS = DEST_RAW,
+        DEST_SOL = 12,
+        LAST_VALID_TYPE_NO_FLAGS = DEST_SOL,
         FLAG_RESERVED1 = 16,
         FLAG_RESERVED2 = 32,
         FLAG_DEST_AUX = 64,
@@ -340,10 +342,33 @@ public:
         return retVal;
     }
 
+    static uint256 DecodeSolDestination(const std::string &destStr)
+    {
+        uint256 retVal;
+        if (destStr.length() == 43 || destStr.length() == 44)
+        {
+            std::vector<unsigned char> decoded;
+            if (DecodeBase58(destStr, decoded) && decoded.size() == 32)
+            {
+                // Use all 32 bytes to form uint256
+                retVal = uint256(decoded);
+            }
+        }
+        return retVal;
+    }
+
     static std::string EncodeEthDestination(const uint160 &ethDestID)
     {
         // reverse bytes to match ETH encoding
         return "0x" + HexBytes(ethDestID.begin(), ethDestID.size());
+    }
+
+    static std::string EncodeSolDestination(const uint256 &solDestID)
+    {
+        // Solana addresses are base58 encoded 32-byte values
+        // uint256 is already 32 bytes, so we can use it directly
+        std::vector<unsigned char> solBytes(solDestID.begin(), solDestID.end());
+        return EncodeBase58(solBytes);
     }
 
     static std::pair<uint160, uint256> DecodeEthNFTDestination(const std::string &destStr)
@@ -961,6 +986,14 @@ public:
             case CTransferDestination::DEST_ETH:
             {
                 if (proofProtocol != CCurrencyDefinition::PROOF_ETHNOTARIZATION)
+                {
+                    return false;
+                }
+                break;
+            }
+            case CTransferDestination::DEST_SOL:
+            {
+                if (proofProtocol != CCurrencyDefinition::PROOF_SOLNOTARIZATION)
                 {
                     return false;
                 }

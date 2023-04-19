@@ -11367,6 +11367,7 @@ UniValue sendcurrency(const UniValue& params, bool fHelp)
                 CTransferDestination dest;
                 if (destination.which() == COptCCParams::ADDRTYPE_INVALID)
                 {
+                    //TODO: SOL - Add solana check in here
                     if (destSystemDef.IsGateway())
                     {
                         // if we expect an ETH address, only accept that
@@ -11401,6 +11402,7 @@ UniValue sendcurrency(const UniValue& params, bool fHelp)
                             dest = CTransferDestination(CTransferDestination::FLAG_DEST_GATEWAY + CTransferDestination::DEST_RAW, rawDestBytes, destSystemID);
                         }
                     }
+                    //TODO: SOL - Add a solana PROOF_SOLNOTARIZATION check here
                     else if (exportSystemDef.IsValid() && exportSystemDef.proofProtocol == exportSystemDef.PROOF_ETHNOTARIZATION)
                     {
                         uint160 ethDestination = dest.DecodeEthDestination(destStr);

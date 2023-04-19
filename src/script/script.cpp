@@ -254,6 +254,7 @@ CTxDestination GetCompatibleAuxDestination(const CTransferDestination &transferD
                 }
                 break;
             }
+            //TODO: SOL - Add solana check here for PROOF_SOLNOTARIZATION
         }
     }
     return CTxDestination();
@@ -323,6 +324,8 @@ CTxDestination TransferDestinationToDestination(const CTransferDestination &tran
             retDest = CTxDestination(CPubKey(ParseHex(CC.CChexstr)));
             break;
         }
+
+        //NOTE: SOL - Not sure if we need a case ::DEST_SOL here, but if we do, it should be similar to the ETH case
 
         case CTransferDestination::DEST_QUANTUM:
             retDest = CQuantumID(uint160(transferDest.destination));
@@ -1113,6 +1116,7 @@ std::set<CIndexID> COptCCParams::GetIndexKeys() const
                 {
                     destinations.insert(CIndexID(CCrossChainRPCData::GetConditionID(ASSETCHAINS_CHAINID, CCurrencyDefinition::ExternalCurrencyKey())));
                 }
+                //TODO: SOL - Add solana check here
                 if (definition.launchSystemID == ASSETCHAINS_CHAINID &&
                     !(definition.IsToken() &&
                       !definition.IsFractional() &&

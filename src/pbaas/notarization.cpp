@@ -7152,6 +7152,11 @@ bool CPBaaSNotarization::CreateEarnedNotarization(const CRPCChainData &externalS
         notarization.prevNotarization = cnd.vtx[notaryIdx].first;
         notarization.prevHeight = cnd.vtx[notaryIdx].second.notarizationHeight;
 
+        //TODO: SOL - Add SOL contract upgrade logic here - support both ETH and SOL contracts
+        // Currently only supports ETH contracts. Need to:
+        // 1. Check if APPROVE_SOL_CONTRACT_UPGRADE is set
+        // 2. Handle both ETH and SOL contract types
+        // 3. Update SetContractUpgrade to accept multiple gateway types
         notarization.SetContractUpgrade(APPROVE_CONTRACT_UPGRADE, APPROVE_CONTRACT_UPGRADE.IsValid() && APPROVE_CONTRACT_UPGRADE.TypeNoFlags() == APPROVE_CONTRACT_UPGRADE.DEST_ETH);
 
         CCcontract_info CC;
@@ -10139,6 +10144,7 @@ bool PreCheckAcceptedOrEarnedNotarization(const CTransaction &tx, int32_t outNum
                 return state.Error("Accepted notarization beneficiary must be public key, publick key hash, or ID destination");
             }
         }
+        //TODO: SOL - Add support for solana contract type addresses
         else if (!(currentNotarization.IsContractUpgrade() &&
                    currentNotarization.proposer.GetAuxDest(0).TypeNoFlags() == CTransferDestination::DEST_ETH))
         {
