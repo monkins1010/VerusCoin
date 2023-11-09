@@ -647,7 +647,7 @@ CPartialTransactionProof::CPartialTransactionProof(const UniValue &uni)
 
 uint32_t GetOptimizedETHProofHeight(bool getVerusHeight)
 {
-    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : 2280500) : 0;
+    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : 2805000) : 0;
 }
 
 template<>
