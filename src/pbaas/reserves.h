@@ -52,6 +52,7 @@ extern uint32_t PBAAS_TESTFORK8_TIME;
 extern uint32_t PBAAS_MAINDEFI3_HEIGHT;
 extern uint32_t PBAAS_CLEARCONVERT_HEIGHT;
 extern uint32_t PBAAS_LASTKNOWNCLEARORACLE_HEIGHT;
+extern uint32_t PBAAS_OPTIMIZE_ETH_HEIGHT;
 
 // reserve output is a special kind of token output that does not have to carry it's identifier, as it
 // is always assumed to be the reserve currency of the current chain.

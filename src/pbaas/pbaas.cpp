@@ -6330,6 +6330,7 @@ void CConnectedChains::CheckOracleUpgrades()
     std::map<uint160, CUpgradeDescriptor>::iterator disablePBaaSCrossChainIt = activeUpgradesByKey.find(DisablePBaaSCrossChainKey());
     std::map<uint160, CUpgradeDescriptor>::iterator disableGatewayCrossChainIt = activeUpgradesByKey.find(DisableGatewayCrossChainKey());
     std::map<uint160, CUpgradeDescriptor>::iterator magicNumberFixIt = IsVerusActive() ? activeUpgradesByKey.find(MagicNumberFixKey()) : activeUpgradesByKey.end();
+    std::map<uint160, CUpgradeDescriptor>::iterator enableOptimizedETHProofIt = IsVerusActive() ? activeUpgradesByKey.find(EnableOptimizedETHProofKey()) : activeUpgradesByKey.end();
     std::map<uint160, CUpgradeDescriptor>::iterator stoppingIt = activeUpgradesByKey.end();
 
     std::string gracefulStop;
@@ -6342,6 +6343,12 @@ void CConnectedChains::CheckOracleUpgrades()
             gracefulStop = "PROTOCOL CHANGE FOR PBAAS CHAIN VERSION UPDATE";
         }
     }
+
+    if (enableOptimizedETHProofIt != activeUpgradesByKey.end())
+    {
+        PBAAS_OPTIMIZE_ETH_HEIGHT = enableOptimizedETHProofIt->second.upgradeBlockHeight;
+    }
+
     if (disableDeFiIt != activeUpgradesByKey.end() ||
         disablePBaaSCrossChainIt != activeUpgradesByKey.end() ||
         disableGatewayCrossChainIt != activeUpgradesByKey.end())
@@ -6417,7 +6424,7 @@ uint32_t CConnectedChains::GetZeroViaHeight(bool getVerusHeight) const
 
 uint32_t CConnectedChains::GetOptimizedETHProofHeight(bool getVerusHeight) const
 {
-    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : 2805000) : 0;
+    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : PBAAS_OPTIMIZE_ETH_HEIGHT) : 0;
 }
 
 bool CConnectedChains::ShouldOptimizeETHProof() const

@@ -1275,6 +1275,18 @@ public:
         return key;
     }
 
+    static std::string EnableOptimizedETHProofName()
+    {
+        return "vrsc::system.upgradedata.enableoptimizedethproof";
+    }
+
+    static uint160 EnableOptimizedETHProofKey()
+    {
+        static uint160 nameSpace;
+        static uint160 key = CVDXF_Data::GetDataKey(EnableOptimizedETHProofName(), nameSpace);
+        return key;
+    }
+
     static std::string ResetNotarizationModuloKeyName()
     {
         return "vrsc::system.upgradedata.resetnotarizationmodulo";
