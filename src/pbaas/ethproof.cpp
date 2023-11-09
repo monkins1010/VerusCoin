@@ -465,7 +465,7 @@ uint256 CPATRICIABranch<CHashWriter>::verifyStorageProof(uint256 ccExporthash, b
     try
     {
         std::vector<std::vector<unsigned char>> toEncode;
-        toEncode.push_back(optimizedProof ? uint64_to_vec_BE(nonce) : ParseHex(uint64_to_hex_(nonce)));
+        toEncode.push_back(optimizedProof ? uint64_to_vec_BE(nonce) : ParseHex(uint64_to_hex_deprecated(nonce)));
         toEncode.push_back(GetBalanceAsBEVector());
         toEncode.push_back(storage);
         std::vector<unsigned char> codeHash_vec(codeHash.begin(),codeHash.end());
