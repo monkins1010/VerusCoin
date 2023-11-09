@@ -602,7 +602,7 @@ public:
         std::vector<unsigned char> remainder; 
     };
     bool optimized;
-    RLP(bool optimized) : optimized(optimized){};
+    RLP(bool Optimized=true) : optimized(Optimized){};
     std::vector<unsigned char> encodeLength(int length,int offset);
     std::vector<unsigned char> encodeLength_deprecated(int length,int offset);
     std::vector<unsigned char> encode(std::vector<unsigned char> input);

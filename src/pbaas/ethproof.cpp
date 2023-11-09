@@ -296,7 +296,7 @@ template<>
 std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std::vector<unsigned char> key,std::vector<std::vector<unsigned char>>& proof){
 
     uint256 wantedHash = rootHash;
-    RLP rlp = RLP(false);
+    RLP rlp;
 
     key = toNibbles(key);
     //loop through each element in the proof
