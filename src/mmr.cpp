@@ -211,7 +211,7 @@ uint160 CMMRProof::GetNativeAddress() const
     return retAddress;
 }
 
-uint256 CMMRProof::CheckProof(uint256 hash) const
+uint256 CMMRProof::CheckProof(uint256 hash, bool optimized) const
 {
     for (auto &pProof : proofSequence)
     {
@@ -236,7 +236,7 @@ uint256 CMMRProof::CheckProof(uint256 hash) const
             }
             case CMerkleBranchBase::BRANCH_ETH:
             {
-                hash = ((CETHPATRICIABranch *)pProof)->SafeCheck(hash);
+                hash = ((CETHPATRICIABranch *)pProof)->SafeCheck(hash, optimized);
                 LogPrint("crosschain", "Result from ETHBranch check: %s\n", hash.GetHex().c_str());
                 break;
             }

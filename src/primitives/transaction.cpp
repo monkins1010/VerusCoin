@@ -645,17 +645,6 @@ CPartialTransactionProof::CPartialTransactionProof(const UniValue &uni)
     }
 }
 
-uint32_t GetOptimizedETHProofHeight(bool getVerusHeight)
-{
-    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : 2805000) : 0;
-}
-
-template<>
-uint256 CPATRICIABranch<CKeccack256Writer>::SafeCheck(uint256 hash) 
-{
-    return verifyStorageProof(hash, chainActive.Height() >= GetOptimizedETHProofHeight());
-}
-
 // this validates that all parts of a transaction match and either returns a full transaction
 // and its hash, a partially filled transaction and its MMR root, or NULL
 uint256 CPartialTransactionProof::GetPartialTransaction(CTransaction &outTx, bool *pIsPartial) const
@@ -809,9 +798,9 @@ uint256 CPartialTransactionProof::GetPartialTransaction(CTransaction &outTx, boo
 
 // this validates that all parts of a transaction match and also whether or not it
 // matches the block MMR root, which should be the return value
-uint256 CPartialTransactionProof::CheckPartialTransaction(CTransaction &outTx, bool *pIsPartial) const
+uint256 CPartialTransactionProof::CheckPartialTransaction(CTransaction &outTx, bool *pIsPartial, bool optimizedETH) const
 {
-    return txProof.CheckProof(GetPartialTransaction(outTx, pIsPartial));
+    return txProof.CheckProof(GetPartialTransaction(outTx, pIsPartial), optimizedETH);
 }
 
 uint256 CPartialTransactionProof::CheckBlockPreHeader(CPBaaSPreHeader &outPreHeader, bool newPosFormat) const

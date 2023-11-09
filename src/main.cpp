@@ -127,6 +127,11 @@ void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 static bool IsSuperMajority(int minVersion, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams);
 static void CheckBlockIndex(const Consensus::Params& consensusParams);
 
+uint32_t GetLatestHeight()
+{
+    return chainActive.Height();
+}
+
 /** Constant stuff for coinbase transactions we create: */
 CScript COINBASE_FLAGS;
 

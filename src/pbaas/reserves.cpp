@@ -574,9 +574,12 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                 CTransaction exportTx;
                 bool isPartial = false;
                 p = COptCCParams();
+                bool optimizeETHProof = ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.type == CPartialTransactionProof::TYPE_ETH &&
+                                        ConnectedChains.ShouldOptimizeETHProof();
+
                 if (!(transactionProof.evidence.chainObjects.size() &&
                     importNotarization.proofRoots[pBaseImport->sourceSystemID].stateRoot ==
-                        ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.CheckPartialTransaction(exportTx, &isPartial) &&
+                        ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.CheckPartialTransaction(exportTx, &isPartial, optimizeETHProof) &&
                     ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.TransactionHash() == pBaseImport->exportTxId &&
                     exportTx.vout.size() > pBaseImport->exportTxOutNum &&
                     exportTx.vout[pBaseImport->exportTxOutNum].scriptPubKey.IsPayToCryptoCondition(p) &&
@@ -593,7 +596,7 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                                 ToUniValue().write(1,2).c_str(),
                                 ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.GetBlockHeight(),
                                 ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.GetProofHeight(),
-                                ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.CheckPartialTransaction(exportTx, &isPartial).GetHex().c_str(),
+                                ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.CheckPartialTransaction(exportTx, &isPartial, optimizeETHProof).GetHex().c_str(),
                                 EncodeDestination(CIdentityID(pBaseImport->sourceSystemID)).c_str(),
                                 importNotarization.ToUniValue().write(1,2).c_str());
                     }

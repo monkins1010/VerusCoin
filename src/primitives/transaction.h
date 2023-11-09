@@ -1373,7 +1373,7 @@ public:
 
     // this validates that all parts of a transaction match and either returns a full transaction
     // and its hash, a partially filled transaction and its MMR root, or NULL
-    uint256 CheckPartialTransaction(CTransaction &outTx, bool *pIsPartial=nullptr) const;
+    uint256 CheckPartialTransaction(CTransaction &outTx, bool *pIsPartial=nullptr, bool optimizedETH=true) const;
 
     bool IsBlockPreHeader() const
     {
@@ -1766,7 +1766,5 @@ struct WTxId
         return a.hash != b.hash || a.authDigest != b.authDigest;
     }
 };
-
-uint32_t GetOptimizedETHProofHeight(bool getVerusHeight=false);
 
 #endif // BITCOIN_PRIMITIVES_TRANSACTION_H

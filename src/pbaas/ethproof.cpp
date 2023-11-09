@@ -290,8 +290,6 @@ RLP::rlpDecoded RLP::decode(std::string inputString){
     return decode(inputBytes);
 }
 
-
-
 template<>
 std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std::vector<unsigned char> key,std::vector<std::vector<unsigned char>>& proof){
 
@@ -387,7 +385,7 @@ std::vector<unsigned char> CETHPATRICIABranch::verifyProof(uint256& rootHash,std
 
 
 template<>
-std::vector<unsigned char> CPATRICIABranch<CHashWriter>::verifyAccountProof()
+std::vector<unsigned char> CETHPATRICIABranch::verifyAccountProof()
 {
     CKeccack256Writer key_hasher;
     key_hasher.write((const char *)(&address), address.size());
@@ -412,8 +410,8 @@ std::vector<unsigned char> CPATRICIABranch<CHashWriter>::verifyAccountProof()
 }
 
 template<>
-uint256 CPATRICIABranch<CHashWriter>::verifyStorageProof(uint256 ccExporthash, bool optimizedProof){
-
+uint256 CETHPATRICIABranch::verifyStorageProof(uint256 ccExporthash, bool optimizedProof)
+{
     //Check the storage value hash, which is the hash of the crosschain export transaction
     //matches the the RLP decoded information from the bridge keeper
 
@@ -496,4 +494,10 @@ uint256 CPATRICIABranch<CHashWriter>::verifyStorageProof(uint256 ccExporthash, b
     //run the storage proof
 
     return stateRoot;
+}
+
+template<>
+uint256 CETHPATRICIABranch::SafeCheck(uint256 hash, bool optimizedProof) 
+{
+    return verifyStorageProof(hash, optimizedProof);
 }

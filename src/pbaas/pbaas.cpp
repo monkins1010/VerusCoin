@@ -6415,6 +6415,16 @@ uint32_t CConnectedChains::GetZeroViaHeight(bool getVerusHeight) const
     return (getVerusHeight || IsVerusActive()) ? (PBAAS_TESTMODE ? 69013 : 2578653) : 0;
 }
 
+uint32_t CConnectedChains::GetOptimizedETHProofHeight(bool getVerusHeight) const
+{
+    return (getVerusHeight || _IsVerusActive()) ? (PBAAS_TESTMODE ? 284300 : 2805000) : 0;
+}
+
+bool CConnectedChains::ShouldOptimizeETHProof() const
+{
+    return chainActive.Height() >= GetOptimizedETHProofHeight();
+}
+
 bool CConnectedChains::CheckZeroViaOnlyPostLaunch(uint32_t height) const
 {
     return height > GetZeroViaHeight(false);
@@ -7367,7 +7377,7 @@ bool CConnectedChains::CreateLatestImports(const CCurrencyDefinition &sourceSyst
                 continue;
             }
 
-            if (proofNotarization.proofRoots[sourceSystemID].stateRoot != oneIT.first.second.CheckPartialTransaction(exportTx))
+            if (proofNotarization.proofRoots[sourceSystemID].stateRoot != oneIT.first.second.CheckPartialTransaction(exportTx, nullptr, ConnectedChains.ShouldOptimizeETHProof()))
             {
                 LogPrintf("%s: export tx %s fails verification\n", __func__, oneIT.first.first.txIn.prevout.hash.GetHex().c_str());
                 continue;

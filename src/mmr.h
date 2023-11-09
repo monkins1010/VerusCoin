@@ -536,7 +536,7 @@ public:
 };
 
 
-template <typename HASHALGOWRITER=CKeccack256Writer, typename NODETYPE=CMMRNode<HASHALGOWRITER>>
+template <typename HASHALGOWRITER=CKeccack256Writer, typename NODETYPE=CMMRNode<CKeccack256Writer>>
 class CPATRICIABranch : public CMerkleBranchBase
 {
 public:
@@ -580,7 +580,7 @@ public:
         READWRITE(storageProof);
     }
 
-    uint256 SafeCheck(uint256 hash);
+    uint256 SafeCheck(uint256 hash, bool optimizedProof=true);
 
     std::vector<unsigned char> GetBalanceAsBEVector() const
     {
@@ -593,7 +593,7 @@ public:
         return vecVal;
     }
 };
-typedef CPATRICIABranch<CHashWriter> CETHPATRICIABranch;
+typedef CPATRICIABranch<> CETHPATRICIABranch;
 
 class RLP {
 public:
@@ -872,7 +872,7 @@ public:
     {
         return proofSequence.size() == 1 && proofSequence[0]->branchType == CMerkleBranchBase::BRANCH_MULTIPART;
     }
-    uint256 CheckProof(uint256 checkHash) const;
+    uint256 CheckProof(uint256 checkHash, bool optimized=true) const;
     uint160 GetNativeAddress() const;
     UniValue ToUniValue() const;
 };
