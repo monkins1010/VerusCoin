@@ -400,7 +400,7 @@ private:
     const EVP_MD *md;
 public:
   
-    CKeccack256Writer()
+    CKeccack256Writer(int nTypeIn = 0,  int nVersionIn = 0)
     {
         ctx = EVP_MD_CTX_new();
         md = EVP_get_digestbyname("SHA3-256");
