@@ -775,6 +775,52 @@ uint256 CPartialTransactionProof::GetPartialTransaction(CTransaction &outTx, boo
                 }
             }
         }
+        else if (components[0].elType == CTransactionHeader::TX_SOLANA_OBJECT && components[0].Rehydrate(outTx))
+        {
+            if (vdxfObj.key == CCrossChainExport::CurrencyExportKey())
+            {
+                // unpack data specific to export and reserve transfers
+                CDataStream s = CDataStream(vdxfObj.data, SER_NETWORK, PROTOCOL_VERSION);
+                uint256 prevtxid;
+                CCrossChainExport ccx;
+                CCcontract_info CC;
+                CCcontract_info *cp;
+                checkOK = true;
+                try
+                {
+                    s >> ccx;
+                    s >> prevtxid;
+                }
+                catch (const std::runtime_error &e)
+                {
+                    LogPrintf("Solana Rehydrate(vdxfObj) Error : %s\n", e.what());
+                    checkOK = false;
+                }
+
+                if (ccx.IsValid() && checkOK)
+                {
+                    CNativeHashWriter hw2(CCurrencyDefinition::EProofProtocol::PROOF_SOLNOTARIZATION);
+                    hw2 << ccx;
+                    hw2 << prevtxid;
+
+                    txRoot = hw2.GetHash();
+                    cp = CCinit(&CC, EVAL_CROSSCHAIN_EXPORT);
+                    std::vector<CTxDestination> dests = std::vector<CTxDestination>({CPubKey(ParseHex(CC.CChexstr))});
+                    mtx.vin.push_back(CTxIn(prevtxid, 0));
+                    mtx.vout.push_back(CTxOut(0, MakeMofNCCScript(CConditionObj<CCrossChainExport>(EVAL_CROSSCHAIN_EXPORT, dests, 1, &ccx))));
+
+                    isPartial = true;
+
+                    outTx = mtx;
+                }
+                else
+                {
+                    if(checkOK)
+                        LogPrintf("Invalid Solana ccx : %s\n", __func__);
+                    txRoot = uint256();
+                }
+            }
+        }
     }
     if (pIsPartial)
     {

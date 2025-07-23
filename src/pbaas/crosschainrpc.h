@@ -535,8 +535,9 @@ public:
         PROOF_PBAASMMR = 1,                 // Verus MMR proof, no notaries required
         PROOF_CHAINID = 2,                  // if signed by the chain ID, that is considered proof
         PROOF_ETHNOTARIZATION = 3,          // proven by Ethereum notarization
-        PROOF_LASTPROTOCOL = 3,
-        PROOF_KOMODONOTARIZATION = 4        // Komodo protocol is not valid until someone from Komodo finishes it
+        PROOF_SOLNOTARIZATION = 4,          // proven by Solana notarization
+        PROOF_LASTPROTOCOL = 4,
+        PROOF_KOMODONOTARIZATION = 5        // Komodo protocol is not valid until someone from Komodo finishes it
     };
 
     enum EHashTypes
@@ -1544,7 +1545,8 @@ public:
     {
         TYPE_PBAAS=1,                       // Verus and other PBaaS chain proof root type
         TYPE_ETHEREUM=2,                    // Ethereum proof root with patricia tree
-        TYPE_KOMODO=3                       // Komodo MoMoM proof root
+        TYPE_KOMODO=3,                       // Komodo MoMoM proof root
+        TYPE_SOLANA=4                       // Solana proof root
     };
     int16_t version;                        // to enable future data types with various functions
     int16_t type;                           // type of proof root

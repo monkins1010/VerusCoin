@@ -1926,9 +1926,9 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
                 if (_IsVerusActive() &&
                     CConstVerusSolutionVector::GetVersionByHeight(chainActive.Height()) >= CActivationHeight::ACTIVATE_PBAAS)
                 {
-                    // until we have connected to the ETH bridge, after PBaaS has launched, we check each block to see if there is now an
-                    // ETH bridge defined
-                    ConnectedChains.ConfigureEthBridge(true);
+                    // until we have connected to any gateway bridge (ETH, SOL, etc.), after PBaaS has launched, 
+                    // we check each block to see if there is now a gateway bridge defined
+                    ConnectedChains.ConfigureGatewayBridges(true);
                 }
 
                 ConnectedChains.CheckOracleUpgrades();

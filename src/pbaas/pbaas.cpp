@@ -5684,6 +5684,55 @@ uint160 CEthGateway::GatewayID() const
     return CCrossChainRPCData::GetID("veth@");
 }
 
+bool CSolGateway::ValidateDestination(const std::string &destination) const
+{
+    // Validate Solana address format - base58 encoded, 32 bytes (44 characters)
+    if (destination.length() != 44)
+    {
+        return false;
+    }
+    
+    // Check if it's valid base58
+    std::vector<unsigned char> decoded;
+    if (!DecodeBase58(destination, decoded) || decoded.size() != 32)
+    {
+        return false;
+    }
+    
+    // Check that it's not a null address
+    uint256 addr(decoded);
+    return !addr.IsNull();
+}
+
+CTransferDestination CSolGateway::ToTransferDestination(const std::string &destination) const
+{
+    std::vector<unsigned char> decoded;
+    if (destination.length() == 44 &&
+        DecodeBase58(destination, decoded) &&
+        decoded.size() == 32)
+    {
+        uint256 addr(decoded);
+        if (!addr.IsNull())
+        {
+            return CTransferDestination(CTransferDestination::FLAG_DEST_GATEWAY + CTransferDestination::DEST_RAW,
+                                        decoded);
+        }
+    }
+    return CTransferDestination();
+}
+
+std::set<uint160> CSolGateway::FeeCurrencies() const
+{
+    std::set<uint160> retVal;
+    retVal.insert(CCrossChainRPCData::GetID("vsol@"));
+    return retVal;
+}
+
+uint160 CSolGateway::GatewayID() const
+{
+    return CCrossChainRPCData::GetID("vsol@");
+}
+
 bool CConnectedChains::RemoveMergedBlock(uint160 chainID)
 {
     bool retval = false;
@@ -6089,6 +6138,7 @@ bool CConnectedChains::IsVerusPBaaSAvailable()
     uint160 parent = VERUS_CHAINID;
     return IsNotaryAvailable() &&
            ((_IsVerusActive() && FirstNotaryChain().chainDefinition.GetID() == CIdentity::GetID("veth", parent)) ||
+            (_IsVerusActive() && FirstNotaryChain().chainDefinition.GetID() == CIdentity::GetID("vsol", parent)) ||
             FirstNotaryChain().chainDefinition.GetID() == VERUS_CHAINID);
 }
 
@@ -6885,6 +6935,103 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
         return IsNotaryAvailable(callToCheck);
     }
     return false;
+}
+
+// Configure gateway bridges for supported gateways (vETH, vSOL, etc.)
+bool CConnectedChains::ConfigureGatewayBridges(bool callToCheck)
+{
+    if (!_IsVerusActive())
+    {
+        return false;
+    }
+    if (IsNotaryAvailable())
+    {
+        return true;
+    }
+    LOCK(cs_main);
+    if (FirstNotaryChain().IsValid())
+    {
+        return IsNotaryAvailable(callToCheck);
+    }
+
+    uint160 gatewayParent = ASSETCHAINS_CHAINID;
+    bool anyBridgeConfigured = false;
+
+    // Try to configure each supported gateway
+    std::vector<std::string> supportedGatewayNames = {"veth", "vsol"};
+    
+    for (const std::string& gatewayName : supportedGatewayNames)
+    {
+        uint160 gatewayID = CIdentity::GetID(gatewayName, gatewayParent);
+        CCurrencyDefinition chainDef = ConnectedChains.GetCachedCurrency(gatewayID);
+        
+        if (chainDef.IsValid())
+        {
+            CRPCChainData gatewayNotaryChain;
+            gatewayNotaryChain.chainDefinition = chainDef;
+            
+            map<string, string> settings;
+            map<string, vector<string>> settingsmulti;
+
+            // create config file for our notary chain if one does not exist already
+            try
+            {
+                if (ReadConfigFile(gatewayName, settings, settingsmulti) &&
+                    settingsmulti.count("-rpchost") &&
+                    settingsmulti.count("-rpcuser") &&
+                    settingsmulti.count("-rpcport") &&
+                    settingsmulti.count("-rpcpassword"))
+                {
+                    gatewayNotaryChain.rpcUserPass = settingsmulti.find("-rpcuser")->second[0] + ":" + settingsmulti.find("-rpcpassword")->second[0];
+                    gatewayNotaryChain.rpcPort = atoi(settingsmulti.find("-rpcport")->second[0]);
+                    gatewayNotaryChain.rpcHost = settingsmulti.find("-rpchost")->second[0];
+                    
+                    // Set global variables for backward compatibility (first configured gateway)
+                    if (!anyBridgeConfigured)
+                    {
+                        PBAAS_USERPASS = gatewayNotaryChain.rpcUserPass;
+                        PBAAS_PORT = gatewayNotaryChain.rpcPort;
+                        PBAAS_HOST = gatewayNotaryChain.rpcHost;
+                    }
+                }
+            }
+            catch(const std::exception& e)
+            {
+                LogPrintf("%s: Error reading %s config file - may be invalid or misconfigured\n", __func__, gatewayName.c_str());
+                continue;
+            }
+            
+            if (gatewayNotaryChain.rpcHost.empty())
+            {
+                gatewayNotaryChain.rpcHost = "127.0.0.1";
+            }
+            
+            CChainNotarizationData cnd;
+            if (!GetNotarizationData(gatewayID, cnd))
+            {
+                LogPrintf("%s: Failed to get notarization data for notary chain %s\n", __func__, chainDef.name.c_str());
+                continue;
+            }
+
+            // Determine notary system type based on gateway name
+            int notaryType = CNotarySystemInfo::TYPE_ETH; // Default to ETH type
+            if (gatewayName == "vsol")
+            {
+                notaryType = CNotarySystemInfo::TYPE_ETH; // For now, use same type. Could add TYPE_SOL later
+            }
+
+            notarySystems.insert(std::make_pair(gatewayID,
+                                                CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
+                                                gatewayNotaryChain,
+                                                cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
+                                                notaryType,
+                                                CNotarySystemInfo::VERSION_CURRENT)));
+            anyBridgeConfigured = true;
+            LogPrintf("%s: Successfully configured %s gateway bridge\n", __func__, gatewayName.c_str());
+        }
+    }
+
+    return anyBridgeConfigured ? IsNotaryAvailable(callToCheck) : false;
 }
 
 int CConnectedChains::GetThisChainPort() const

@@ -2406,16 +2406,16 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const std::vecto
             solutionVersion >= CActivationHeight::ACTIVATE_PBAAS &&
             !notaryConnected)
         {
-            // until we have connected to the ETH bridge, after PBaaS has launched, we check each block to see if there is now an
-            // ETH bridge defined
+            // until we have connected to any supported bridge (ETH, SOL, etc.), after PBaaS has launched, 
+            // we check each block to see if there is now a gateway bridge defined
             if (ConnectedChains.FirstNotaryChain().IsValid())
             {
-                // once PBaaS is active, we attempt to connect to the Ethereum bridge, in case it is active
+                // once PBaaS is active, we attempt to connect to available gateway bridges
                 notaryConnected = ConnectedChains.IsNotaryAvailable(true);
             }
             else
             {
-                notaryConnected = ConnectedChains.ConfigureEthBridge(true);
+                notaryConnected = ConnectedChains.ConfigureGatewayBridges(true);
             }
         }
 
