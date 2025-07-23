@@ -36,6 +36,7 @@
 
 #include "rpc/pbaasrpc.h"
 #include "coincontrol.h"
+#include "pbaas/pbaas.h"
 
 #include <librustzcash.h>
 #include "transaction_builder.h"
@@ -69,6 +70,20 @@ extern std::string VERUS_CHAINNAME;
 arith_uint256 komodo_PoWtarget(int32_t *percPoSp,arith_uint256 target,int32_t height,int32_t goalperc);
 
 std::set<uint160> ClosedPBaaSChains({});
+
+// Function to get all supported gateway IDs
+std::set<uint160> GetSupportedGateways()
+{
+    static std::set<uint160> supportedGateways;
+    if (supportedGateways.empty())
+    {
+        CEthGateway ethGateway;
+        CSolGateway solGateway;
+        supportedGateways.insert(ethGateway.GatewayID());
+        supportedGateways.insert(solGateway.GatewayID());
+    }
+    return supportedGateways;
+}
 
 UniValue getminingdistribution(const UniValue& params, bool fHelp);
 UniValue signdata(const UniValue& params, bool fHelp);
@@ -12972,9 +12987,10 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
             {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "mapped currency must be a token with no initial supply and cannot be otherwise functional");
             }
-            if (newCurrency.proofProtocol != newCurrency.PROOF_ETHNOTARIZATION)
+            if (newCurrency.proofProtocol != newCurrency.PROOF_ETHNOTARIZATION &&
+                newCurrency.proofProtocol != newCurrency.PROOF_SOLNOTARIZATION)
             {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Ethereum mapped currency must have \"proofprotocol\":%d", (int)newCurrency.PROOF_ETHNOTARIZATION));
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Mapped currency must have \"proofprotocol\":%d (Ethereum) or %d (Solana)", (int)newCurrency.PROOF_ETHNOTARIZATION, (int)newCurrency.PROOF_SOLNOTARIZATION));
             }
             bool nonZeroSupply = (newCurrency.conversions.size() && !newCurrency.maxPreconvert.size()) || newCurrency.GetTotalPreallocation();
             for (auto oneVal : newCurrency.maxPreconvert)
@@ -12992,9 +13008,10 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
             if (systemCurrency.IsValid() &&
                 (!systemCurrency.IsGateway() ||
                  (systemCurrency.launchSystemID != ASSETCHAINS_CHAINID && newCurrency.parent != ASSETCHAINS_CHAINID) ||
-                 systemCurrency.proofProtocol != systemCurrency.PROOF_ETHNOTARIZATION))
+                 (systemCurrency.proofProtocol != systemCurrency.PROOF_ETHNOTARIZATION && 
+                  systemCurrency.proofProtocol != systemCurrency.PROOF_SOLNOTARIZATION)))
             {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum protocol networks are the only mapped currency type currently supported");
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum and Solana protocol networks are the only mapped currency types currently supported");
             }
         }
         else
@@ -13297,11 +13314,14 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
             "                                                                               can mint/burn & change weights\n"
             "                                                           3 = PROOF_ETHNOTARIZATION - ETH & PATRICIA TRIE proof (do not attempt without\n"
             "                                                                                       full understanding + C++, JavaScript & Solidity dev(s))\n"
+            "                                                           4 = PROOF_SOLNOTARIZATION - Solana notarization proof (do not attempt without\n"
+            "                                                                                       full understanding + C++, JavaScript & Rust dev(s))\n"
             "\n"
             "         \"notarizationprotocol\" : n,            (int,    optional) if 2, currency can be minted by whoever controls the ID\n"
             "                                                           1 = PROOF_PBAASMMR - Verus MMR proof, no notaries required\n"
             "                                                           2 = PROOF_CHAINID - chain ID is sole notary for proof, no evidence required\n"
             "                                                           3 = PROOF_ETHNOTARIZATION - Ethereum notarization & PATRICIA TRIE proof\n"
+            "                                                           4 = PROOF_SOLNOTARIZATION - Solana notarization proof\n"
             "\n"
             "         \"expiryheight\"  : n,            (int,    optional) block height at which the transaction expires, default: curheight + 20\n"
             "         \"startblock\"    : n,            (int,    optional) VRSC block must be notarized into block 1 of PBaaS chain, default: expiryheight\n"
@@ -13525,10 +13545,11 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
             // set start block and gateway converter issuance
             if (newChain.IsGateway())
             {
-                CEthGateway gatewayCheck;
-                if (newChain.GetID() != gatewayCheck.GatewayID())
+                // Check if this gateway is supported
+                std::set<uint160> supportedGateways = GetSupportedGateways();
+                if (supportedGateways.find(newChain.GetID()) == supportedGateways.end())
                 {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum is the only gateway supported at this time");
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Unsupported gateway. Supported gateways: vETH, vSOL");
                 }
 
                 if (uni_get_int(gatewayConverterMap["startblock"]) < (int32_t)(height + DEFAULT_PRE_BLOSSOM_TX_EXPIRY_DELTA))

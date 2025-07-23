@@ -229,6 +229,15 @@ public:
     virtual uint160 GatewayID() const;
 };
 
+class CSolGateway : public CGateway
+{
+public:
+    virtual bool ValidateDestination(const std::string &destination) const;
+    virtual CTransferDestination ToTransferDestination(const std::string &destination) const;
+    virtual std::set<uint160> FeeCurrencies() const;
+    virtual uint160 GatewayID() const;
+};
+
 class CObjectFinalization;
 
 // This is the data for a PBaaS notarization transaction, either of a PBaaS chain into the Verus chain, or the Verus
@@ -1222,6 +1231,7 @@ public:
     bool IsVerusPBaaSAvailable();
     bool IsNotaryAvailable(bool callToCheck=false);
     bool ConfigureEthBridge(bool callToCheck=false);
+    bool ConfigureGatewayBridges(bool callToCheck=false);
     void CheckOracleUpgrades();
     bool IsUpgradeActive(const uint160 &upgradeID, uint32_t blockHeight=UINT32_MAX, uint32_t blockTime=UINT32_MAX) const;
     uint32_t GetZeroViaHeight(bool getVerusHeight) const;

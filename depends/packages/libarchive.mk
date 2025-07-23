@@ -4,6 +4,7 @@ $(package)_download_path=https://github.com/libarchive/libarchive/releases/downl
 $(package)_file_name=$(package)-$($(package)_version).tar.gz
 $(package)_download_file=$(package)-$($(package)_version).tar.gz
 $(package)_config_opts=--with-sysroot=$(host_prefix)/lib
+$(package)_config_opts=--disable-shared --without-bz2lib --without-libb2 --without-iconv --without-lz4 --without-lzma --without-lzo2 --without-nettle --without-xml2 --without-expat --without-openssl --without-mbedtls
 $(package)_config_opts_linux=--disable-bsdtar --disable-bsdcpio --disable-shared --enable-static --prefix=$(host_prefix) --host=$(HOST)
 $(package)_config_opts_mingw32=--disable-bsdtar --disable-bsdcpio --disable-shared --enable-static --prefix=$(host_prefix) --host=x86_64-w64-mingw32
 $(package)_config_opts_darwin=--without-zstd --without-lz4 --disable-bsdtar --disable-bsdcpio --disable-shared --enable-static --prefix=$(host_prefix)
