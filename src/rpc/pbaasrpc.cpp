@@ -70,6 +70,20 @@ arith_uint256 komodo_PoWtarget(int32_t *percPoSp,arith_uint256 target,int32_t he
 
 std::set<uint160> ClosedPBaaSChains({});
 
+// Function to get all supported gateway IDs
+std::set<uint160> GetSupportedGateways()
+{
+    static std::set<uint160> supportedGateways;
+    if (supportedGateways.empty())
+    {
+        CEthGateway ethGateway;
+        CSolGateway solGateway;
+        supportedGateways.insert(ethGateway.GatewayID());
+        supportedGateways.insert(solGateway.GatewayID());
+    }
+    return supportedGateways;
+}
+
 UniValue getminingdistribution(const UniValue& params, bool fHelp);
 UniValue signdata(const UniValue& params, bool fHelp);
 
