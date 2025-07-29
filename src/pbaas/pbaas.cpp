@@ -5719,6 +5719,62 @@ bool CConnectedChains::RemoveMergedBlock(uint160 chainID)
     return retval;
 }
 
+bool CSolGateway::ValidateDestination(const std::string &destination) const
+{
+    // Solana addresses are base58 encoded and should be 32 bytes when decoded
+    // They typically range from 32-44 characters in base58 format
+    if (destination.length() < 32 || destination.length() > 44)
+    {
+        return false;
+    }
+
+    // Try to decode the base58 string
+    std::vector<unsigned char> decoded;
+    if (!DecodeBase58(destination, decoded))
+    {
+        return false;
+    }
+
+    // Solana addresses should decode to exactly 32 bytes
+    if (decoded.size() != 32)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+CTransferDestination CSolGateway::ToTransferDestination(const std::string &destination) const
+{
+    // just returns true if it looks like a non-NULL SOL address
+    std::vector<unsigned char> decoded;
+    if (!DecodeBase58(destination, decoded))
+    {
+        return CTransferDestination();
+    }
+
+    // Solana addresses should decode to exactly 32 bytes
+    if (decoded.size() != 32)
+    {
+        return CTransferDestination();
+    }
+
+    return CTransferDestination(CTransferDestination::FLAG_DEST_GATEWAY + CTransferDestination::DEST_RAW,
+                                std::vector<unsigned char>(decoded.begin(), decoded.end()));
+}
+
+std::set<uint160> CSolGateway::FeeCurrencies() const
+{
+    std::set<uint160> retVal;
+    retVal.insert(CCrossChainRPCData::GetID("vsol@"));
+    return retVal;
+}
+
+uint160 CSolGateway::GatewayID() const
+{
+    return CCrossChainRPCData::GetID("vsol@");
+}
+
 // remove merge mined chains added and not updated since a specific time
 void CConnectedChains::PruneOldChains(uint32_t pruneBefore)
 {

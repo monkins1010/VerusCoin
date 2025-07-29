@@ -229,6 +229,15 @@ public:
     virtual uint160 GatewayID() const;
 };
 
+class CSolGateway : public CGateway
+{
+public:
+    virtual bool ValidateDestination(const std::string &destination) const;
+    virtual CTransferDestination ToTransferDestination(const std::string &destination) const;
+    virtual std::set<uint160> FeeCurrencies() const;
+    virtual uint160 GatewayID() const;
+};
+
 class CObjectFinalization;
 
 // This is the data for a PBaaS notarization transaction, either of a PBaaS chain into the Verus chain, or the Verus

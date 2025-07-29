@@ -904,7 +904,8 @@ public:
         TX_SHIELDEDSPEND = 5,
         TX_SHIELDEDOUTPUT = 6,
         TX_ETH_OBJECT = 7,
-        TX_BLOCK_PREHEADER = 8      // virtual transaction added after others to prove block data without VerusHash
+        TX_BLOCK_PREHEADER = 8,      // virtual transaction added after others to prove block data without VerusHash
+        TX_SOL_OBJECT = 9,           
     };
 
     uint256 txHash;
@@ -1356,6 +1357,29 @@ public:
                 }
 
                 CNativeHashWriter hw2(CCurrencyDefinition::EProofProtocol::PROOF_ETHNOTARIZATION);
+                hw2 << ccx;
+                hw2 << prevtxid;
+
+                return hw2.GetHash();
+            }
+            else if (components[0].elType == CTransactionHeader::TX_SOL_OBJECT && components[0].Rehydrate(vdxfObj))
+            {
+                CDataStream s = CDataStream(vdxfObj.data, SER_NETWORK, PROTOCOL_VERSION);
+                uint256 prevtxid;
+                CCrossChainExport ccx;
+
+                try
+                {
+                    s >> ccx;
+                    s >> prevtxid;
+                }
+                catch (const std::runtime_error &e)
+                {
+                    LogPrintf("Deserialization of SOL type object failed : %s\n", e.what());
+                    return uint256();
+                }
+
+                CNativeHashWriter hw2(CCurrencyDefinition::EProofProtocol::PROOF_SOLNOTARIZATION);
                 hw2 << ccx;
                 hw2 << prevtxid;
 

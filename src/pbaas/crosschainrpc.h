@@ -536,7 +536,8 @@ public:
         PROOF_CHAINID = 2,                  // if signed by the chain ID, that is considered proof
         PROOF_ETHNOTARIZATION = 3,          // proven by Ethereum notarization
         PROOF_LASTPROTOCOL = 3,
-        PROOF_KOMODONOTARIZATION = 4        // Komodo protocol is not valid until someone from Komodo finishes it
+        PROOF_KOMODONOTARIZATION = 4,        // Komodo protocol is not valid until someone from Komodo finishes it
+        PROOF_SOLNOTARIZATION = 5,           // Solana protocol is not valid until someone from Solana finishes it
     };
 
     enum EHashTypes
