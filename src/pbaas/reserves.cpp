@@ -645,35 +645,57 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                     return state.Error(strprintf("%s: invalid export evidence for import", __func__));
                 }
 
-                if (importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION)
+                if (importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION ||
+                    importFromDef.proofProtocol == importFromDef.PROOF_SOLNOTARIZATION)
                 {
                     if (transactionProof.evidence.chainObjects.size() &&
                         ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.IsChainProof())
                     {
                         if (deepCheck)
                         {
-                            CMMRProof &EthProof = ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.txProof;
-                            if (importFromDef.nativeCurrencyID.TypeNoFlags() != importFromDef.nativeCurrencyID.DEST_ETH)
+                            CMMRProof &chainProof = ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.txProof;
+                            
+                            // Validate destination type matches proof protocol
+                            if (importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION)
                             {
-                                return state.Error(strprintf("%s: missing contract address in currency definition", __func__));
+                                if (importFromDef.nativeCurrencyID.TypeNoFlags() != importFromDef.nativeCurrencyID.DEST_ETH)
+                                {
+                                    return state.Error(strprintf("%s: missing ETH contract address in currency definition", __func__));
+                                }
+                                if (uint160(importFromDef.nativeCurrencyID.destination) != chainProof.GetNativeAddress())
+                                {
+                                    LogPrintf("%s: Invalid ETH storage address, Found: %s, got %s from proof", __func__,
+                                        CTransferDestination::EncodeEthDestination(uint160(importFromDef.nativeCurrencyID.destination)),
+                                        CTransferDestination::EncodeEthDestination(chainProof.GetNativeAddress()));
+                                    return state.Error(strprintf("%s: invalid ETH storage address", __func__));
+                                }
                             }
-                            if (uint160(importFromDef.nativeCurrencyID.destination) != EthProof.GetNativeAddress())
+                            else if (importFromDef.proofProtocol == importFromDef.PROOF_SOLNOTARIZATION)
                             {
-                                LogPrintf("%s: Invalid ETH storage address, Found: %s, got %s from proof", __func__,
-                                    CTransferDestination::EncodeEthDestination(uint160(importFromDef.nativeCurrencyID.destination)),
-                                    CTransferDestination::EncodeEthDestination(EthProof.GetNativeAddress()));
-                                return state.Error(strprintf("%s: invalid ETH storage address", __func__));
+                                if (importFromDef.nativeCurrencyID.TypeNoFlags() != importFromDef.nativeCurrencyID.DEST_SOL)
+                                {
+                                    return state.Error(strprintf("%s: missing SOL contract address in currency definition", __func__));
+                                }
+                                if (uint256(importFromDef.nativeCurrencyID.destination) != chainProof.GetSolNativeAddress())
+                                {
+                                    LogPrintf("%s: Invalid SOL storage address, Found: %s, got %s from proof", __func__,
+                                        CTransferDestination::EncodeSolDestination(uint256(importFromDef.nativeCurrencyID.destination)),
+                                        CTransferDestination::EncodeSolDestination(uint256(chainProof.GetSolNativeAddress())));
+                                    return state.Error(strprintf("%s: invalid SOL storage address", __func__));
+                                }
                             }
 
-                            if(!EthProof.CheckStorageKey(ccx.sourceHeightStart)){
-                                LogPrintf("%s: Invalid ETH storage key.", __func__);
-                                return state.Error(strprintf("%s: invalid ETH storage key", __func__));
+                            if(!chainProof.CheckStorageKey(ccx.sourceHeightStart)){
+                                LogPrintf("%s: Invalid storage key for %s protocol.", __func__, 
+                                    importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION ? "ETH" : "SOL");
+                                return state.Error(strprintf("%s: invalid storage key", __func__));
                             }
                         }
                     }
                     else
                     {
-                        return state.Error(strprintf("%s: ETH chainproof empty", __func__));
+                        const char* protocolName = importFromDef.proofProtocol == importFromDef.PROOF_ETHNOTARIZATION ? "ETH" : "SOL";
+                        return state.Error(strprintf("%s: %s chainproof empty", __func__, protocolName));
                     }
                 }
 

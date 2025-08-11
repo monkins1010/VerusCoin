@@ -231,6 +231,8 @@ UniValue RPCCallRoot(const string& strMethod, const UniValue& params, int timeou
     }
     else if ((_IsVerusActive() &&
               ReadConfigFile("veth", settings, settingsmulti)) ||
+              (_IsVerusActive() &&
+              ReadConfigFile("vsol", settings, settingsmulti)) ||
              (!_IsVerusActive() &&
               ReadConfigFile(PBAAS_TESTMODE ? "vrsctest" : "VRSC", settings, settingsmulti)))
     {

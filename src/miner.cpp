@@ -2408,6 +2408,8 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const std::vecto
         {
             // until we have connected to the ETH bridge, after PBaaS has launched, we check each block to see if there is now an
             // ETH bridge defined
+
+            //NOTE: SOL Not sure if we can put a configureSolBridge here? there is a ethereum bride already, can we also check for a Solana bridge?
             if (ConnectedChains.FirstNotaryChain().IsValid())
             {
                 // once PBaaS is active, we attempt to connect to the Ethereum bridge, in case it is active

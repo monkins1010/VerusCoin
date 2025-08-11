@@ -211,6 +211,28 @@ uint160 CMMRProof::GetNativeAddress() const
     return retAddress;
 }
 
+uint256 CMMRProof::GetSolNativeAddress() const
+{
+    uint256 retAddress;
+    for (auto &pProof : proofSequence)
+    {
+        switch(pProof->branchType)
+        {
+            case CMerkleBranchBase::BRANCH_SOL:
+            {
+                // TODO: what branch should we use? MMR?
+                retAddress = ((CSOLBranch *)pProof)->contractAddress;
+                break;
+            }
+            default:
+            {
+                return uint256();
+            }
+        }
+    }
+    return retAddress;
+}
+
 bool CMMRProof::CheckStorageKey(uint32_t height) const
 {
     for (auto &pProof : proofSequence)

@@ -28,7 +28,7 @@ extern std::string VERUS_CHAINNAME;
 CIdentityID VERUS_DEFAULTID;
 CIdentityID VERUS_NOTARYID;
 CIdentityID PBAAS_NOTIFICATION_ORACLE;                                  // an identity that can be used to coordinate on-chain actions or upgrades
-CTransferDestination APPROVE_CONTRACT_UPGRADE;                          // approve a contract to be upgraded on the ETH bridge, enables the network to decide
+CTransferDestination APPROVE_CONTRACT_UPGRADE;                          // approve a contract to be upgraded on the ETH bridge, enables the network to decide NOTE: SOL need to consier this for Solana
 std::string PBAAS_DEFAULT_NOTIFICATION_ORACLE = "";                     // please see "-notificationoracle" and coordinate with ALL network validators to change this default,
                                                                         // if empty, it's the current chain
 

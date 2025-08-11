@@ -1552,6 +1552,8 @@ UniValue CMMRProof::ToUniValue() const
                 std::vector<unsigned char> serBytes(::AsVector(*this));
                 retObj.push_back(Pair("data", HexBytes(&(serBytes[0]), serBytes.size())));
             }
+            //TODO: SOL what to do with SOL branch?
+            // should we use MMR or BTC branch, or something else?
         };
     }
     return retObj;

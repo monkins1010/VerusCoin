@@ -690,6 +690,7 @@ bool PrecheckCrossChainImport(const CTransaction &tx, int32_t outNum, CValidatio
             // 2) a gateway that had no delay before startblock
             // 3) self-currency definition
             // 4) mapped currency definition (different systemID than launchSystemID, ETH proof protocol, DEST_ETH or DEST_ETHNFT nativeCurrencyID)
+            // 5) mapped currency definition (different systemID than launchSystemID, SOL proof protocol, DEST_SOL nativeCurrencyID)
             if (notarization.IsLaunchComplete())
             {
                 if (height != 1 &&
@@ -698,7 +699,10 @@ bool PrecheckCrossChainImport(const CTransaction &tx, int32_t outNum, CValidatio
                     !(importCurrency.launchSystemID == ASSETCHAINS_CHAINID &&
                       importCurrency.proofProtocol == importCurrency.PROOF_ETHNOTARIZATION &&
                       (importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETH ||
-                       importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETHNFT)))
+                       importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETHNFT)) &&
+                    !(importCurrency.launchSystemID == ASSETCHAINS_CHAINID &&
+                      importCurrency.proofProtocol == importCurrency.PROOF_SOLNOTARIZATION &&
+                      importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_SOL))
                 {
                     return state.Error("Definition import and simultaneous active launch must be for block 1 definitions or gateway currency: " + cci.ToUniValue().write(1,2));
                 }
@@ -6145,6 +6149,7 @@ bool CConnectedChains::IsVerusPBaaSAvailable()
     uint160 parent = VERUS_CHAINID;
     return IsNotaryAvailable() &&
            ((_IsVerusActive() && FirstNotaryChain().chainDefinition.GetID() == CIdentity::GetID("veth", parent)) ||
+           (_IsVerusActive() && FirstNotaryChain().chainDefinition.GetID() == CIdentity::GetID("vsol", parent)) ||
             FirstNotaryChain().chainDefinition.GetID() == VERUS_CHAINID);
 }
 
@@ -6935,6 +6940,80 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
         notarySystems.insert(std::make_pair(gatewayID,
                                             CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
                                             vethNotaryChain,
+                                            cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
+                                            CNotarySystemInfo::TYPE_ETH,
+                                            CNotarySystemInfo::VERSION_CURRENT)));
+        return IsNotaryAvailable(callToCheck);
+    }
+    return false;
+}
+
+bool CConnectedChains::ConfigureSolBridge(bool callToCheck)
+{
+    // first time through, we initialize the VSOL gateway config file
+    if (!_IsVerusActive())
+    {
+        return false;
+    }
+    if (IsNotaryAvailable())
+    {
+        return true;
+    }
+    LOCK(cs_main);
+    if (FirstNotaryChain().IsValid())
+    {
+        return IsNotaryAvailable(callToCheck);
+    }
+
+    CRPCChainData vsolNotaryChain;
+    uint160 gatewayParent = ASSETCHAINS_CHAINID;
+    static uint160 gatewayID;
+    if (gatewayID.IsNull())
+    {
+        gatewayID = CIdentity::GetID("vsol", gatewayParent);
+    }
+    vsolNotaryChain.chainDefinition = ConnectedChains.GetCachedCurrency(gatewayID);
+    if (vsolNotaryChain.chainDefinition.IsValid())
+    {
+        map<string, string> settings;
+        map<string, vector<string>> settingsmulti;
+
+        // create config file for our notary chain if one does not exist already
+        try
+        {
+            if (ReadConfigFile("vsol", settings, settingsmulti) &&
+                settingsmulti.count("-rpchost") &&
+                settingsmulti.count("-rpcuser") &&
+                settingsmulti.count("-rpcport") &&
+                settingsmulti.count("-rpcpassword"))
+            {
+                // the Solana bridge, "VSOL", serves as the root currency to VRSC and for Sepolia to VRSCTEST
+                vsolNotaryChain.rpcUserPass = PBAAS_USERPASS = settingsmulti.find("-rpcuser")->second[0] + ":" + settingsmulti.find("-rpcpassword")->second[0];
+                vsolNotaryChain.rpcPort = PBAAS_PORT = atoi(settingsmulti.find("-rpcport")->second[0]);
+                PBAAS_HOST = settingsmulti.find("-rpchost")->second[0];
+            }
+        }
+        catch(const std::exception& e)
+        {
+            LogPrintf("%s: Error reading vsol config file - may be invalid or misconfigured\n", __func__);
+        }
+
+        if (!PBAAS_HOST.size())
+        {
+            PBAAS_HOST = "127.0.0.1";
+        }
+        vsolNotaryChain.rpcHost = PBAAS_HOST;
+        CNotarySystemInfo notarySystem;
+        CChainNotarizationData cnd;
+        if (!GetNotarizationData(gatewayID, cnd))
+        {
+            LogPrintf("%s: Failed to get notarization data for notary chain %s\n", __func__, vsolNotaryChain.chainDefinition.name.c_str());
+            return false;
+        }
+
+        notarySystems.insert(std::make_pair(gatewayID,
+                                            CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
+                                            vsolNotaryChain,
                                             cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
                                             CNotarySystemInfo::TYPE_ETH,
                                             CNotarySystemInfo::VERSION_CURRENT)));
@@ -11654,9 +11733,10 @@ void CConnectedChains::SubmissionThread()
                         bool amNotary = false;
 
                         const CCurrencyDefinition &notaryCurrency = ConnectedChains.FirstNotaryChain().chainDefinition;
-                        // if this is an ETH protocol, we could get reverted and still have to pay, so if we are a notary,
+                        // if this is an ETH or SOL protocol, we could get reverted and still have to pay, so if we are a notary,
                         // to prevent funds loss, sort notaries and make sure we are in the top 2 before we try to submit
-                        if (notaryCurrency.proofProtocol == CCurrencyDefinition::PROOF_ETHNOTARIZATION)
+                        if (notaryCurrency.proofProtocol == CCurrencyDefinition::PROOF_ETHNOTARIZATION ||
+                            notaryCurrency.proofProtocol == CCurrencyDefinition::PROOF_SOLNOTARIZATION)
                         {
                             for (auto &oneNotary : notaryCurrency.notaries)
                             {

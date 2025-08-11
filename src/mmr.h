@@ -314,7 +314,8 @@ public:
         BRANCH_MMRBLAKE_POWERNODE = 3,
         BRANCH_ETH = 4,
         BRANCH_MULTIPART = 5,
-        BRANCH_LAST = 5
+        BRANCH_SOL = 6,
+        BRANCH_LAST = 6
     };
 
     uint8_t branchType;
@@ -600,6 +601,74 @@ public:
 };
 typedef CPATRICIABranch<> CETHPATRICIABranch;
 
+// This is template for Solana branches, which are used to represent the Merkle branches in the Solana blockchain.
+// It is designed to work with the CHashWriter for hashing and CMMRNode for
+// TODO: need to define the solana native contract address in the proof and extract it using a function
+// to get the contract address from the branch.
+// The contract address is used to identify the specific contract in the Solana blockchain.
+template <typename HASHALGOWRITER=CHashWriter, typename NODETYPE=CMMRNode<HASHALGOWRITER>>
+class CSolBranch : public CMerkleBranchBase
+{
+public:
+    uint32_t nIndex;                // index of the element in this merkle tree
+    std::vector<uint256> branch;
+    uint256 contractAddress;
+
+    CMerkleBranch() : CMerkleBranchBase(BRANCH_BTC), nIndex(0) {}
+    CMerkleBranch(int i, std::vector<uint256> b) : CMerkleBranchBase(BRANCH_BTC), nIndex(i), branch(b) {}
+
+    CMerkleBranch& operator<<(CMerkleBranch append)
+    {
+        nIndex += append.nIndex << branch.size();
+        branch.insert(branch.end(), append.branch.begin(), append.branch.end());
+        return *this;
+    }
+
+    ADD_SERIALIZE_METHODS;
+    
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(*(CMerkleBranchBase *)this);
+        READWRITE(VARINT(nIndex));
+        READWRITE(branch);
+    }
+
+    // extraHashes are the count of additional elements, such as work or power, to also incorporate into the hash tree
+    uint256 SafeCheck(uint256 hash) const
+    {
+        int64_t index = nIndex;
+
+        if (index == -1)
+            return uint256();
+
+        // printf("start SafeCheck branch.size(): %lu, index: %lu, hash: %s\n", branch.size(), index, HashAbbrev(hash).c_str());
+        for (auto it(branch.begin()); it != branch.end(); ++it)
+        {
+            HASHALGOWRITER hw(SER_GETHASH, 0);
+            if (index & 1) 
+            {
+                if (*it == hash) 
+                {
+                    // non canonical. hash may be equal to node but never on the right.
+                    return uint256();
+                }
+                hw << *it;
+                hw << hash;
+            }
+            else
+            {
+                hw << hash;
+                hw << *it;
+            }
+            hash = hw.GetHash();
+            index >>= 1;
+        }
+        // printf("end SafeCheck\n");
+        return hash;
+    }
+};
+typedef CSolBranch<CHashWriter> CSOLBranch;
+
 class RLP {
 public:
     struct rlpDecoded {
@@ -879,6 +948,7 @@ public:
     }
     uint256 CheckProof(uint256 checkHash, bool optimized=true) const;
     uint160 GetNativeAddress() const;
+    uint256 GetSolNativeAddress() const;
     bool CheckStorageKey(uint32_t height) const;
     UniValue ToUniValue() const;
 };

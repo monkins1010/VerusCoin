@@ -13029,6 +13029,32 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum protocol networks are the only mapped currency type currently supported");
             }
         }
+        else if (!newCurrency.IsGateway() &&
+            (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL))
+        {
+            if (newCurrency.IsPBaaSChain() ||
+                !newCurrency.IsToken() ||
+                newCurrency.IsFractional())
+            {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "mapped currency must be a token with no initial supply and cannot be otherwise functional");
+            }
+            if (newCurrency.proofProtocol != newCurrency.PROOF_SOLNOTARIZATION)
+            {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Solana mapped currency must have \"proofprotocol\":%d", (int)newCurrency.PROOF_SOLNOTARIZATION));
+            }
+            bool nonZeroSupply = (newCurrency.conversions.size() && !newCurrency.maxPreconvert.size()) || newCurrency.GetTotalPreallocation();
+            for (auto oneVal : newCurrency.maxPreconvert)
+            {
+                if (oneVal)
+                {
+                    nonZeroSupply = true;
+                }
+            }
+            if (nonZeroSupply)
+            {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Mapped currency definition requires zero initial supply and no possible conversions");
+            }
+        }
         else
         {
             // if this is a token or gateway definition, set systemID
