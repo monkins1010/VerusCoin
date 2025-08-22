@@ -3906,7 +3906,8 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
                 (preexistingID.parent != registeredCurrency.parent ||
                  ((preexistingID.systemID != registeredCurrency.systemID &&
                    !((registeredCurrency.nativeCurrencyID.TypeNoFlags() == registeredCurrency.nativeCurrencyID.DEST_ETH ||
-                      registeredCurrency.nativeCurrencyID.TypeNoFlags() == registeredCurrency.nativeCurrencyID.DEST_ETHNFT) &&
+                      registeredCurrency.nativeCurrencyID.TypeNoFlags() == registeredCurrency.nativeCurrencyID.DEST_ETHNFT ||
+                    registeredCurrency.nativeCurrencyID.TypeNoFlags() == registeredCurrency.nativeCurrencyID.DEST_SOL) &&
                      (systemCurrency.IsValid() &&
                       systemCurrency.IsGateway() &&
                       !systemCurrency.IsNameController())) &&
@@ -3994,7 +3995,8 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
                 (importedID.parent != preexistingCurrency.parent ||
                  (importedID.systemID != preexistingCurrency.systemID &&
                   !((preexistingCurrency.nativeCurrencyID.TypeNoFlags() == preexistingCurrency.nativeCurrencyID.DEST_ETH ||
-                     preexistingCurrency.nativeCurrencyID.TypeNoFlags() == preexistingCurrency.nativeCurrencyID.DEST_ETHNFT) &&
+                     preexistingCurrency.nativeCurrencyID.TypeNoFlags() == preexistingCurrency.nativeCurrencyID.DEST_ETHNFT ||
+                    preexistingCurrency.nativeCurrencyID.TypeNoFlags() == preexistingCurrency.nativeCurrencyID.DEST_SOL) &&
                     (systemCurrency.IsValid() &&
                      systemCurrency.IsGateway() &&
                      !systemCurrency.IsNameController())) &&
@@ -4117,8 +4119,9 @@ bool CReserveTransfer::GetTxOut(const CCurrencyDefinition &sourceSystem,
 
         // make normal output to the destination, which must be valid
         // if destination is not valid, and we are supposed to make an output
-        // to an ETH address, make a nested output instead
-        if (dest.which() == COptCCParams::ADDRTYPE_INVALID && destination.TypeNoFlags() == destination.DEST_ETH)
+        // to an ETH or SOL address, make a nested output instead
+        if (dest.which() == COptCCParams::ADDRTYPE_INVALID && 
+            (destination.TypeNoFlags() == destination.DEST_ETH || destination.TypeNoFlags() == destination.DEST_SOL))
         {
             // we make an unspendable P2SH output with the ETH address as the P2SH value
             CKeyID unspendableP2SH;

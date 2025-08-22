@@ -1395,6 +1395,13 @@ CTransferDestination::CTransferDestination(const UniValue &obj) : fees(0)
             break;
         }
 
+        case CTransferDestination::DEST_SOL:
+        {
+            uint256 solDestID = DecodeSolDestination(uni_get_str(find_value(obj, "address")));
+            destination = ::AsVector(solDestID);
+            break;
+        }
+
         case CTransferDestination::DEST_FULLID:
         {
             std::string serializedHex(uni_get_str(find_value(obj, "serializeddata")));

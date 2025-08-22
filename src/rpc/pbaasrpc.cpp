@@ -70,20 +70,6 @@ arith_uint256 komodo_PoWtarget(int32_t *percPoSp,arith_uint256 target,int32_t he
 
 std::set<uint160> ClosedPBaaSChains({});
 
-// Function to get all supported gateway IDs
-std::set<uint160> GetSupportedGateways()
-{
-    static std::set<uint160> supportedGateways;
-    if (supportedGateways.empty())
-    {
-        CEthGateway ethGateway;
-        CSolGateway solGateway;
-        supportedGateways.insert(ethGateway.GatewayID());
-        supportedGateways.insert(solGateway.GatewayID());
-    }
-    return supportedGateways;
-}
-
 UniValue getminingdistribution(const UniValue& params, bool fHelp);
 UniValue signdata(const UniValue& params, bool fHelp);
 
@@ -11382,6 +11368,20 @@ UniValue sendcurrency(const UniValue& params, bool fHelp)
                                 dest.SetAuxDest(DestinationToTransferDestination(refundDestination), 0);
                             }
                         }
+                        // else if we expect a SOL address, only accept that
+                        else if (exportSystemDef.proofProtocol == exportSystemDef.PROOF_SOLNOTARIZATION)
+                        {
+                            uint256 solDestination = dest.DecodeSolDestination(destStr);
+                            if (solDestination.IsNull())
+                            {
+                                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid Solana destination (null)");
+                            }
+                            dest = CTransferDestination(CTransferDestination::DEST_SOL, ::AsVector(solDestination));
+                            if (refundDestination.which() != COptCCParams::ADDRTYPE_INVALID)
+                            {
+                                dest.SetAuxDest(DestinationToTransferDestination(refundDestination), 0);
+                            }
+                        }
                         else
                         {
                             std::vector<unsigned char> rawDestBytes;
@@ -11408,6 +11408,22 @@ UniValue sendcurrency(const UniValue& params, bool fHelp)
                             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid Ethereum destination (null)");
                         }
                         dest = CTransferDestination(CTransferDestination::DEST_ETH, ::AsVector(ethDestination));
+                        dest.type |= dest.FLAG_DEST_GATEWAY;
+                        dest.gatewayID = exportSystemDef.GetID();
+
+                        if (refundDestination.which() != COptCCParams::ADDRTYPE_INVALID)
+                        {
+                            dest.SetAuxDest(DestinationToTransferDestination(refundDestination), 0);
+                        }
+                    }
+                    else if (exportSystemDef.IsValid() && exportSystemDef.proofProtocol == exportSystemDef.PROOF_SOLNOTARIZATION)
+                    {
+                        uint256 solDestination = dest.DecodeSolDestination(destStr);
+                        if (solDestination.IsNull())
+                        {
+                            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid Solana destination (null)");
+                        }
+                        dest = CTransferDestination(CTransferDestination::DEST_SOL, ::AsVector(solDestination));
                         dest.type |= dest.FLAG_DEST_GATEWAY;
                         dest.gatewayID = exportSystemDef.GetID();
 
@@ -12996,7 +13012,8 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
 
         if (!newCurrency.IsGateway() &&
             (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH ||
-             newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETHNFT))
+             newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETHNFT || 
+             newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL))
         {
             if (newCurrency.IsPBaaSChain() ||
                 !newCurrency.IsToken() ||

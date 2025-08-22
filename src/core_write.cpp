@@ -1016,6 +1016,10 @@ UniValue CTransferDestination::ToUniValue() const
             destVal.push_back(Pair("address", HexBytes(&(destination[0]),destination.size())));
             break;
 
+        case CTransferDestination::DEST_SOL:
+            destVal.push_back(Pair("address", EncodeSolDestination(uint256(destination))));
+            break;
+
         case CTransferDestination::DEST_NESTEDTRANSFER:
             destVal.push_back(Pair("nestedtransfer", CReserveTransfer(destination).ToUniValue()));
             break;

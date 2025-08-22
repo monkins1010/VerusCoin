@@ -24,6 +24,10 @@
 #include "pbaas/vdxf.h"
 #include "utilstrencodings.h"
 
+// Forward declarations for base58 functions
+std::string EncodeBase58(const unsigned char* pbegin, const unsigned char* pend);
+bool DecodeBase58(const std::string& str, std::vector<unsigned char>& vchRet);
+
 static const int DEFAULT_RPC_TIMEOUT=900;
 static const uint32_t PBAAS_VERSION = 1;
 static const uint32_t PBAAS_VERSION_INVALID = 0;
@@ -203,6 +207,7 @@ public:
         DEST_ETH = 9,
         DEST_ETHNFT = 10,                   // used when defining a mapped NFT to gateway that uses an ETH compatible model
         DEST_RAW = 11,
+        DEST_SOL = 12,
         LAST_VALID_TYPE_NO_FLAGS = DEST_RAW,
         FLAG_RESERVED1 = 16,
         FLAG_RESERVED2 = 32,
@@ -361,6 +366,10 @@ public:
         // reverse bytes to match ETH encoding
         return "{\"contract\":\"0x" + HexBytes(ethContractID.begin(), ethContractID.size()) + "\", \"tokenid\":\"0x" + HexBytes(tokenID.begin(), tokenID.size()) + "\"}";
     }
+
+    static std::string EncodeSolDestination(const uint256 &solDestID);
+
+    static uint256 DecodeSolDestination(const std::string &destStr);
 
     static std::string CurrencyDefinitionExportKeyName()
     {
@@ -961,6 +970,14 @@ public:
             case CTransferDestination::DEST_ETH:
             {
                 if (proofProtocol != CCurrencyDefinition::PROOF_ETHNOTARIZATION)
+                {
+                    return false;
+                }
+                break;
+            }
+            case CTransferDestination::DEST_SOL:
+            {
+                if (proofProtocol != CCurrencyDefinition::PROOF_SOLNOTARIZATION)
                 {
                     return false;
                 }

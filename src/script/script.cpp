@@ -254,6 +254,21 @@ CTxDestination GetCompatibleAuxDestination(const CTransferDestination &transferD
                 }
                 break;
             }
+            case CTransferDestination::DEST_SOL:
+            {
+                if (addressProtocol == CCurrencyDefinition::PROOF_SOLNOTARIZATION)
+                {
+                    try
+                    {
+                        return TransferDestinationToDestination(i == -1 ? transferDest : transferDest.GetAuxDest(i));
+                    }
+                    catch(...)
+                    {
+                        return CTxDestination();
+                    }
+                }
+                break;
+            }
         }
     }
     return CTxDestination();
@@ -1119,7 +1134,8 @@ std::set<CIndexID> COptCCParams::GetIndexKeys() const
                       definition.nativeCurrencyID.IsValid() &&
                       definition.GetTotalPreallocation() == 0 &&
                       (definition.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETH ||
-                       definition.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETHNFT) &&
+                       definition.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETHNFT ||
+                       definition.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_SOL) &&
                       definition.systemID != ASSETCHAINS_CHAINID))
                 {
                     destinations.insert(CIndexID(CCrossChainRPCData::GetConditionID(ASSETCHAINS_CHAINID, CCurrencyDefinition::CurrencyLaunchKey())));

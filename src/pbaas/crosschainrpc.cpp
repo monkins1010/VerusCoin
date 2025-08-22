@@ -27,6 +27,7 @@
 #include "rpc/protocol.h"
 #include "util.h"
 #include "utilstrencodings.h"
+#include "base58.h"
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/format.hpp>
@@ -577,6 +578,7 @@ CTransferDestination CTransferDestination::GetAuxDest(int destNum) const
             case DEST_PK:
             case DEST_PKH:
             case DEST_ETH:
+            case DEST_SOL:
             case DEST_SH:
                 break;
             default:
@@ -1755,4 +1757,19 @@ CAmount AmountFromValue(const UniValue& value)
     if (!MoneyRange(amount))
         throw JSONRPCError(RPC_TYPE_ERROR, "Amount out of range");
     return amount;
+}
+
+std::string CTransferDestination::EncodeSolDestination(const uint256 &solDestID)
+{
+    return EncodeBase58(solDestID.begin(), solDestID.end());
+}
+
+uint256 CTransferDestination::DecodeSolDestination(const std::string &destStr)
+{
+    std::vector<unsigned char> vchDecoded;
+    if (DecodeBase58(destStr, vchDecoded) && vchDecoded.size() == 32)
+    {
+        return uint256(vchDecoded);
+    }
+    return uint256();
 }

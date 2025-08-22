@@ -3881,6 +3881,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (CConstVerusSolutionVector::GetVersionByHeight(nHeight) >= CActivationHeight::ACTIVATE_PBAAS)
     {
         ConnectedChains.ConfigureEthBridge();
+        ConnectedChains.ConfigureSolBridge();
     }
 
     bool fExpensiveChecks = true;

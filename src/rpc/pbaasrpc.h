@@ -20,6 +20,9 @@
 bool GetCurrencyDefinition(const std::string &name, CCurrencyDefinition &chainDef);
 bool GetCurrencyDefinition(const uint160 &chainID, CCurrencyDefinition &chainDef, int32_t *pDefHeight=nullptr, bool checkMempool=false, bool notarizationCheck=false, CUTXORef *pUTXO=nullptr, std::vector<CNodeData> *pGoodNodes=nullptr);
 
+// Function to get all supported gateway IDs
+std::set<uint160> GetSupportedGateways();
+
 UniValue getnotarizationproofs(const UniValue& params, bool fHelp);
 
 // if pCounterEvidence is non-null, each entry in the returned vector, which can be indexed as vtx is, returns evidence, followed by challenge root and entropy root

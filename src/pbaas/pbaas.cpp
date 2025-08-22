@@ -692,13 +692,34 @@ bool PrecheckCrossChainImport(const CTransaction &tx, int32_t outNum, CValidatio
             // 4) mapped currency definition (different systemID than launchSystemID, ETH proof protocol, DEST_ETH or DEST_ETHNFT nativeCurrencyID)
             if (notarization.IsLaunchComplete())
             {
-                if (height != 1 &&
-                    !(importCurrency.IsGateway() && importCurrency.startBlock <= height) &&
-                    !(IsVerusActive() && importCurrency.GetID() == ASSETCHAINS_CHAINID) &&
-                    !(importCurrency.launchSystemID == ASSETCHAINS_CHAINID &&
-                      importCurrency.proofProtocol == importCurrency.PROOF_ETHNOTARIZATION &&
-                      (importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETH ||
-                       importCurrency.nativeCurrencyID.TypeNoFlags() == CTransferDestination::DEST_ETHNFT)))
+                // Check if this is a valid launch complete scenario
+                bool isValidLaunchComplete = false;
+                if (height == 1)
+                {
+                    isValidLaunchComplete = true;
+                }
+                else if (importCurrency.IsGateway() && importCurrency.startBlock <= height)
+                {
+                    isValidLaunchComplete = true;
+                }
+                else if (IsVerusActive() && importCurrency.GetID() == ASSETCHAINS_CHAINID)
+                {
+                    isValidLaunchComplete = true;
+                }
+                else if (importCurrency.launchSystemID == ASSETCHAINS_CHAINID)
+                {
+                    // Check for mapped currencies on this chain
+                    uint32_t destType = importCurrency.nativeCurrencyID.TypeNoFlags();
+                    if ((importCurrency.proofProtocol == importCurrency.PROOF_ETHNOTARIZATION &&
+                         (destType == CTransferDestination::DEST_ETH || destType == CTransferDestination::DEST_ETHNFT)) ||
+                        (importCurrency.proofProtocol == importCurrency.PROOF_SOLNOTARIZATION &&
+                         destType == CTransferDestination::DEST_SOL))
+                    {
+                        isValidLaunchComplete = true;
+                    }
+                }
+
+                if (!isValidLaunchComplete)
                 {
                     return state.Error("Definition import and simultaneous active launch must be for block 1 definitions or gateway currency: " + cci.ToUniValue().write(1,2));
                 }
@@ -4041,7 +4062,8 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                                          newCurrency.IsToken() &&
                                          !newCurrency.IsFractional() &&
                                          (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH ||
-                                          newCurrency.IsNFTToken()));
+                                          newCurrency.IsNFTToken()) ||
+                                        (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL));
 
                 if (newCurrency.IsPBaaSChain())
                 {
@@ -4195,7 +4217,8 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                                 (newSystemCurrency.parent == ASSETCHAINS_CHAINID &&
                                 !newSystemCurrency.IsNameController() &&
                                 newCurrency.parent == newSystemCurrency.GetID())) &&
-                            newSystemCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH)
+                            (newSystemCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH ||
+                             newSystemCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL))
                         {
                             failed = false;
                         }
@@ -4440,15 +4463,29 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                     return state.Error("Only gateway and root chain identities may create non-NFT currencies");
                 }
 
-                if (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH &&
-                    !(systemDef.proofProtocol == systemDef.PROOF_ETHNOTARIZATION &&
-                      newCurrency.maxPreconvert.size() == 1 &&
-                      newCurrency.maxPreconvert[0] == 0 &&
-                      newCurrency.GetTotalPreallocation() == 0)  &&
-                    !(newCurrency.systemID == newIdentity.parent ||
-                      newIdentity.parent == ASSETCHAINS_CHAINID))
+                // Validate mapped currency definitions for ETH and SOL
+                uint32_t destType = newCurrency.nativeCurrencyID.TypeNoFlags();
+                bool isMappedCurrency = (destType == CTransferDestination::DEST_ETH || destType == CTransferDestination::DEST_SOL);
+                
+                if (isMappedCurrency)
                 {
-                    return state.Error("Invalid mapped currency definition");
+                    // Check if the currency has valid system definition
+                    bool hasValidSystemDef = ((destType == CTransferDestination::DEST_ETH && 
+                                              systemDef.proofProtocol == systemDef.PROOF_ETHNOTARIZATION) ||
+                                             (destType == CTransferDestination::DEST_SOL && 
+                                              systemDef.proofProtocol == systemDef.PROOF_SOLNOTARIZATION)) &&
+                                            newCurrency.maxPreconvert.size() == 1 &&
+                                            newCurrency.maxPreconvert[0] == 0 &&
+                                            newCurrency.GetTotalPreallocation() == 0;
+                    
+                    // Check if the currency has valid parent relationship
+                    bool hasValidParent = (newCurrency.systemID == newIdentity.parent || 
+                                          newIdentity.parent == ASSETCHAINS_CHAINID);
+                    
+                    if (!hasValidSystemDef && !hasValidParent)
+                    {
+                        return state.Error("Invalid mapped currency definition");
+                    }
                 }
             }
         }
@@ -5502,6 +5539,22 @@ bool PrecheckReserveTransfer(const CTransaction &tx, int32_t outNum, CValidation
                         return state.Error("Invalid Ethereum transfer destination");
                     }
                 }
+                if (destType == rt.destination.DEST_SOL)
+                {
+                    uint256 solDest;
+                    try
+                    {
+                        ::FromVector(rt.destination.destination, solDest);
+                    }
+                    catch(...)
+                    {
+                        solDest = uint256();
+                    }
+                    if (solDest.IsNull())
+                    {
+                        return state.Error("Invalid Solana transfer destination");
+                    }
+                }
                 else if (dest.which() != COptCCParams::ADDRTYPE_ID && dest.which() != COptCCParams::ADDRTYPE_PKH && dest.which() != COptCCParams::ADDRTYPE_SH)
                 {
                     if (rt.destination.TypeNoFlags() != rt.destination.DEST_RAW)
@@ -5773,6 +5826,20 @@ std::set<uint160> CSolGateway::FeeCurrencies() const
 uint160 CSolGateway::GatewayID() const
 {
     return CCrossChainRPCData::GetID("vsol@");
+}
+
+// Function to get all supported gateway IDs
+std::set<uint160> GetSupportedGateways()
+{
+    static std::set<uint160> supportedGateways;
+    if (supportedGateways.empty())
+    {
+        CEthGateway ethGateway;
+        CSolGateway solGateway;
+        supportedGateways.insert(ethGateway.GatewayID());
+        supportedGateways.insert(solGateway.GatewayID());
+    }
+    return supportedGateways;
 }
 
 // remove merge mined chains added and not updated since a specific time
@@ -6876,23 +6943,33 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
     {
         return false;
     }
-    if (IsNotaryAvailable())
-    {
-        return true;
-    }
-    LOCK(cs_main);
-    if (FirstNotaryChain().IsValid())
-    {
-        return IsNotaryAvailable(callToCheck);
-    }
-
-    CRPCChainData vethNotaryChain;
-    uint160 gatewayParent = ASSETCHAINS_CHAINID;
+    
+    // Check if ETH bridge is already configured
     static uint160 gatewayID;
+    uint160 gatewayParent = ASSETCHAINS_CHAINID;
     if (gatewayID.IsNull())
     {
         gatewayID = CIdentity::GetID("veth", gatewayParent);
     }
+    
+    // Check if ETH notary system is already in our systems
+    {
+        LOCK(cs_main);
+        auto ethNotaryIt = notarySystems.find(gatewayID);
+        if (ethNotaryIt != notarySystems.end())
+        {
+            // ETH bridge already configured, just check availability
+            if (callToCheck)
+            {
+                // Verify ETH bridge is still accessible
+                CRPCChainData &ethChain = ethNotaryIt->second.notaryChain;
+                return !ethChain.rpcHost.empty() && ethChain.rpcPort != 0 && !ethChain.rpcUserPass.empty();
+            }
+            return true;
+        }
+    }
+
+    CRPCChainData vethNotaryChain;
     vethNotaryChain.chainDefinition = ConnectedChains.GetCachedCurrency(gatewayID);
     if (vethNotaryChain.chainDefinition.IsValid())
     {
@@ -6908,10 +6985,19 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
                 settingsmulti.count("-rpcport") &&
                 settingsmulti.count("-rpcpassword"))
             {
-                // the Ethereum bridge, "VETH", serves as the root currency to VRSC and for Rinkeby to VRSCTEST
-                vethNotaryChain.rpcUserPass = PBAAS_USERPASS = settingsmulti.find("-rpcuser")->second[0] + ":" + settingsmulti.find("-rpcpassword")->second[0];
-                vethNotaryChain.rpcPort = PBAAS_PORT = atoi(settingsmulti.find("-rpcport")->second[0]);
-                PBAAS_HOST = settingsmulti.find("-rpchost")->second[0];
+                // ETH bridge gets its own connection settings (no global variable conflicts)
+                vethNotaryChain.rpcUserPass = settingsmulti.find("-rpcuser")->second[0] + ":" + settingsmulti.find("-rpcpassword")->second[0];
+                vethNotaryChain.rpcPort = atoi(settingsmulti.find("-rpcport")->second[0]);
+                vethNotaryChain.rpcHost = settingsmulti.find("-rpchost")->second[0];
+                
+                // Set global variables for backwards compatibility (first configured bridge wins)
+                LOCK(cs_main);
+                if (PBAAS_USERPASS.empty())
+                {
+                    PBAAS_USERPASS = vethNotaryChain.rpcUserPass;
+                    PBAAS_PORT = vethNotaryChain.rpcPort;
+                    PBAAS_HOST = vethNotaryChain.rpcHost;
+                }
             }
         }
         catch(const std::exception& e)
@@ -6919,11 +7005,11 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
             LogPrintf("%s: Error reading veth config file - may be invalid or misconfigured\n", __func__);
         }
         
-        if (!PBAAS_HOST.size())
+        if (vethNotaryChain.rpcHost.empty())
         {
-            PBAAS_HOST = "127.0.0.1";
+            vethNotaryChain.rpcHost = "127.0.0.1";
         }
-        vethNotaryChain.rpcHost = PBAAS_HOST;
+        
         CNotarySystemInfo notarySystem;
         CChainNotarizationData cnd;
         if (!GetNotarizationData(gatewayID, cnd))
@@ -6932,13 +7018,118 @@ bool CConnectedChains::ConfigureEthBridge(bool callToCheck)
             return false;
         }
 
-        notarySystems.insert(std::make_pair(gatewayID,
-                                            CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
-                                            vethNotaryChain,
-                                            cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
-                                            CNotarySystemInfo::TYPE_ETH,
-                                            CNotarySystemInfo::VERSION_CURRENT)));
-        return IsNotaryAvailable(callToCheck);
+        {
+            LOCK(cs_main);
+            notarySystems.insert(std::make_pair(gatewayID,
+                                                CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
+                                                vethNotaryChain,
+                                                cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
+                                                CNotarySystemInfo::TYPE_ETH,
+                                                CNotarySystemInfo::VERSION_CURRENT)));
+        }
+        
+        LogPrintf("%s: ETH bridge configured successfully with host: %s, port: %d\n", 
+                  __func__, vethNotaryChain.rpcHost.c_str(), vethNotaryChain.rpcPort);
+        return true;
+    }
+    return false;
+}
+
+bool CConnectedChains::ConfigureSolBridge(bool callToCheck)
+{
+    // first time through, we initialize the VSOL gateway config file
+    if (!_IsVerusActive())
+    {
+        return false;
+    }
+    
+    // Check if SOL bridge is already configured
+    static uint160 gatewayID;
+    uint160 gatewayParent = ASSETCHAINS_CHAINID;
+    if (gatewayID.IsNull())
+    {
+        gatewayID = CIdentity::GetID("vsol", gatewayParent);
+    }
+    
+    // Check if SOL notary system is already in our systems
+    {
+        LOCK(cs_main);
+        auto solNotaryIt = notarySystems.find(gatewayID);
+        if (solNotaryIt != notarySystems.end())
+        {
+            // SOL bridge already configured, just check availability
+            if (callToCheck)
+            {
+                // Verify SOL bridge is still accessible
+                CRPCChainData &solChain = solNotaryIt->second.notaryChain;
+                return !solChain.rpcHost.empty() && solChain.rpcPort != 0 && !solChain.rpcUserPass.empty();
+            }
+            return true;
+        }
+    }
+
+    CRPCChainData vsolNotaryChain;
+    vsolNotaryChain.chainDefinition = ConnectedChains.GetCachedCurrency(gatewayID);
+    if (vsolNotaryChain.chainDefinition.IsValid())
+    {
+        map<string, string> settings;
+        map<string, vector<string>> settingsmulti;
+
+        // create config file for our notary chain if one does not exist already
+        try
+        {
+            if (ReadConfigFile("vsol", settings, settingsmulti) &&
+                settingsmulti.count("-rpchost") &&
+                settingsmulti.count("-rpcuser") &&
+                settingsmulti.count("-rpcport") &&
+                settingsmulti.count("-rpcpassword"))
+            {
+                // SOL bridge gets its own connection settings (no global variable conflicts)
+                vsolNotaryChain.rpcUserPass = settingsmulti.find("-rpcuser")->second[0] + ":" + settingsmulti.find("-rpcpassword")->second[0];
+                vsolNotaryChain.rpcPort = atoi(settingsmulti.find("-rpcport")->second[0]);
+                vsolNotaryChain.rpcHost = settingsmulti.find("-rpchost")->second[0];
+                
+                // Only set global variables if no other notary chain is configured
+                LOCK(cs_main);
+                if (!FirstNotaryChain().IsValid())
+                {
+                    PBAAS_USERPASS = vsolNotaryChain.rpcUserPass;
+                    PBAAS_PORT = vsolNotaryChain.rpcPort;
+                    PBAAS_HOST = vsolNotaryChain.rpcHost;
+                }
+            }
+        }
+        catch(const std::exception& e)
+        {
+            LogPrintf("%s: Error reading vsol config file - may be invalid or misconfigured\n", __func__);
+        }
+        
+        if (vsolNotaryChain.rpcHost.empty())
+        {
+            vsolNotaryChain.rpcHost = "127.0.0.1";
+        }
+        
+        CNotarySystemInfo notarySystem;
+        CChainNotarizationData cnd;
+        if (!GetNotarizationData(gatewayID, cnd))
+        {
+            LogPrintf("%s: Failed to get notarization data for notary chain %s\n", __func__, vsolNotaryChain.chainDefinition.name.c_str());
+            return false;
+        }
+
+        {
+            LOCK(cs_main);
+            notarySystems.insert(std::make_pair(gatewayID,
+                                                CNotarySystemInfo(cnd.IsConfirmed() ? cnd.vtx[cnd.lastConfirmed].second.notarizationHeight : 0,
+                                                vsolNotaryChain,
+                                                cnd.vtx.size() ? cnd.vtx[cnd.forks[cnd.bestChain].back()].second : CPBaaSNotarization(),
+                                                CNotarySystemInfo::TYPE_ETH,
+                                                CNotarySystemInfo::VERSION_CURRENT)));
+        }
+        
+        LogPrintf("%s: SOL bridge configured successfully with host: %s, port: %d\n", 
+                  __func__, vsolNotaryChain.rpcHost.c_str(), vsolNotaryChain.rpcPort);
+        return true;
     }
     return false;
 }
