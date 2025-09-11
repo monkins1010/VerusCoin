@@ -13041,9 +13041,10 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
             if (systemCurrency.IsValid() &&
                 (!systemCurrency.IsGateway() ||
                  (systemCurrency.launchSystemID != ASSETCHAINS_CHAINID && newCurrency.parent != ASSETCHAINS_CHAINID) ||
-                 systemCurrency.proofProtocol != systemCurrency.PROOF_ETHNOTARIZATION))
+                 !(systemCurrency.proofProtocol == systemCurrency.PROOF_ETHNOTARIZATION || 
+                   systemCurrency.proofProtocol == systemCurrency.PROOF_SOLNOTARIZATION)))
             {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum protocol networks are the only mapped currency type currently supported");
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum and Solana protocol networks are the only mapped currency types currently supported");
             }
         }
         else
@@ -13577,7 +13578,7 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
                 CEthGateway gatewayCheck;
                 if (newChain.GetID() != gatewayCheck.GatewayID())
                 {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum is the only gateway supported at this time");
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum or Solana is the only gateway supported at this time");
                 }
 
                 if (uni_get_int(gatewayConverterMap["startblock"]) < (int32_t)(height + DEFAULT_PRE_BLOSSOM_TX_EXPIRY_DELTA))

@@ -801,9 +801,9 @@ CCurrencyDefinition::CCurrencyDefinition(const UniValue &obj) :
         }
 
         proofProtocol = (EProofProtocol)uni_get_int(find_value(obj, "proofprotocol"), (int32_t)PROOF_PBAASMMR);
-        if (proofProtocol != PROOF_PBAASMMR && proofProtocol != PROOF_CHAINID && proofProtocol != PROOF_ETHNOTARIZATION)
+        if (proofProtocol != PROOF_PBAASMMR && proofProtocol != PROOF_CHAINID && proofProtocol != PROOF_ETHNOTARIZATION && proofProtocol != PROOF_SOLNOTARIZATION)
         {
-            LogPrintf("%s: proofprotocol must be %d, %d, or %d\n", __func__, (int)PROOF_PBAASMMR, (int)PROOF_CHAINID, (int)PROOF_ETHNOTARIZATION);
+            LogPrintf("%s: proofprotocol must be %d, %d, %d, or %d\n", __func__, (int)PROOF_PBAASMMR, (int)PROOF_CHAINID, (int)PROOF_ETHNOTARIZATION, (int)PROOF_SOLNOTARIZATION);
             nVersion = PBAAS_VERSION_INVALID;
             return;
         }
