@@ -13576,7 +13576,9 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
             if (newChain.IsGateway())
             {
                 CEthGateway gatewayCheck;
-                if (newChain.GetID() != gatewayCheck.GatewayID())
+                CSolGateway solGatewayCheck;
+                if (newChain.GetID() != gatewayCheck.GatewayID() && 
+                    newChain.GetID() != solGatewayCheck.GatewayID())
                 {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "Ethereum or Solana is the only gateway supported at this time");
                 }
