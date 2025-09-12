@@ -13998,7 +13998,7 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
 
                 if (newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_PBAASMMR ||
                     newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_CHAINID ||
-                    newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_ETHNOTARIZATION
+                    newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_ETHNOTARIZATION ||
                     newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_SOLNOTARIZATION)
                 {
                     dests = std::vector<CTxDestination>({pk.GetID()});
