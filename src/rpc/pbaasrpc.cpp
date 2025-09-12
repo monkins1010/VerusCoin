@@ -13797,6 +13797,7 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
 
         if (newChain.proofProtocol == newChain.PROOF_PBAASMMR ||
             newChain.proofProtocol == newChain.PROOF_ETHNOTARIZATION ||
+            newChain.proofProtocol == newChain.PROOF_SOLNOTARIZATION ||
             newChain.proofProtocol == newChain.PROOF_CHAINID)
         {
             dests = std::vector<CTxDestination>({pk.GetID()});
@@ -13997,7 +13998,8 @@ UniValue definecurrency(const UniValue& params, bool fHelp)
 
                 if (newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_PBAASMMR ||
                     newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_CHAINID ||
-                    newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_ETHNOTARIZATION)
+                    newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_ETHNOTARIZATION
+                    newGatewayConverter.proofProtocol == newGatewayConverter.PROOF_SOLNOTARIZATION)
                 {
                     dests = std::vector<CTxDestination>({pk.GetID()});
                 }
