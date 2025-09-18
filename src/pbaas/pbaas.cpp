@@ -4062,8 +4062,8 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                                          newCurrency.IsToken() &&
                                          !newCurrency.IsFractional() &&
                                          (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_ETH ||
-                                          newCurrency.IsNFTToken()) ||
-                                        (newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL));
+                                          newCurrency.IsNFTToken() ||
+                                          newCurrency.nativeCurrencyID.TypeNoFlags() == newCurrency.nativeCurrencyID.DEST_SOL));
 
                 if (newCurrency.IsPBaaSChain())
                 {
