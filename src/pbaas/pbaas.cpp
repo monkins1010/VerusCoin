@@ -832,7 +832,14 @@ bool PrecheckCrossChainImport(const CTransaction &tx, int32_t outNum, CValidatio
                             uint256 blockHash;
                             if (!myGetTransaction(cci.exportTxId, exportTx, blockHash))
                             {
-                                return state.Error("Can't get export for import: " + cci.ToUniValue().write(1,2));
+                                if (LogAcceptCategory("crosschainimports"))
+                                {
+                                    return state.Error("Can't get export for import: " + cci.ToUniValue().write(1,2));
+                                }
+                                else
+                                {
+                                    return state.Error("Can't get export for import. Missing export: " + cci.exportTxId.GetHex());
+                                }
                             }
 
                             haveExportTx = true;
@@ -1575,7 +1582,7 @@ bool PrecheckCrossChainExport(const CTransaction &tx, int32_t outNum, CValidatio
         // ensure we use the correct condition
         // and that there is no risk of missing valid transfers with the check we end up with here
         if (ccx.sourceHeightStart > 0 &&
-            (!GetChainTransfersUnspentBy(inputDescriptors, ccx.destCurrencyID, ccx.sourceHeightStart, ccx.sourceHeightEnd, height) ||
+            (!GetChainTransfersUnspentBy(inputDescriptors, ccx.destCurrencyID, ccx.sourceHeightStart, ccx.sourceHeightEnd, height, tx.GetHash()) ||
              !GetChainTransfersBetween(inputDescriptors, ccx.destCurrencyID, ccx.sourceHeightEnd + 1, std::min(height, ccx.sourceHeightEnd + 2))))
         {
             return state.Error("Error retrieving cross chain transfers");
@@ -1640,14 +1647,19 @@ bool PrecheckCrossChainExport(const CTransaction &tx, int32_t outNum, CValidatio
              reserveTransfers.size() != txInputVec.size() ||
              ccx.IsClearLaunch() != isClearLaunchExport))
         {
-            if (LogAcceptCategory("crosschainexports"))
+            if (LogAcceptCategory("crosschainexports") || LogAcceptCategory("mevattack"))
             {
                 printf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld\n",
                        __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size());
                 LogPrintf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld\n",
                        __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size());
+                printf("height: %u, currencyname: %s, ccx: %s\n", height, thisDef.name.c_str(), ccx.ToUniValue().write(1,2).c_str());
+                LogPrintf("height: %u, currencyname: %s, ccx: %s\n", height, thisDef.name.c_str(), ccx.ToUniValue().write(1,2).c_str());
+                printf("firsinput: %s\n", CUTXORef(tx.vin[0].prevout).ToUniValue().write().c_str());
+                LogPrintf("firsinput: %s\n", CUTXORef(tx.vin[0].prevout).ToUniValue().write().c_str());
             }
-            return state.Error("Export is not exporting cross chain transfers correctly as required by protocol");
+            return state.Error("Export is not exporting cross chain transfers correctly as required by protocol, currencyid: " + 
+                                EncodeDestination(CIdentityID(ccx.destCurrencyID)) + " hash: " + tx.GetHash().GetHex());
         }
 
         std::set<std::pair<uint256, int>> utxos;
@@ -4347,6 +4359,10 @@ bool PrecheckCurrencyDefinition(const CTransaction &tx, int32_t outNum, CValidat
                 // first time through may be null
                 if ((!input.prevout.hash.IsNull() && input.prevout.hash == idTx.GetHash()) || myGetTransaction(input.prevout.hash, idTx, blkHash))
                 {
+                    if (input.prevout.n >= idTx.vout.size())
+                    {
+                        return state.Error("Invalid, malformed transaction 2");
+                    }
                     if (idTx.vout[input.prevout.n].scriptPubKey.IsPayToCryptoCondition(p) &&
                         p.IsValid() &&
                         p.evalCode == EVAL_IDENTITY_PRIMARY &&
@@ -7502,13 +7518,25 @@ bool CConnectedChains::SetLatestMiningOutputs(const std::vector<CTxOut> &minerOu
 
 CCurrencyDefinition CConnectedChains::GetCachedCurrency(const uint160 &currencyID)
 {
-    CCurrencyDefinition currencyDef = currencyDefCache.Get(currencyID);
-    int32_t defHeight;
-    if (!currencyDef.IsValid() && !GetCurrencyDefinition(currencyID, currencyDef, &defHeight, true))
+    std::tuple<uint32_t, uint256, CCurrencyDefinition> specificCurDef = currencyDefCache.Get(currencyID);
+    CCurrencyDefinition currencyDef = std::get<2>(specificCurDef);
+    if (!currencyDef.IsValid() ||
+        (!std::get<0>(specificCurDef) && currencyDef.GetID() != ASSETCHAINS_CHAINID) ||
+        (std::get<0>(specificCurDef) > 0 &&
+         std::get<0>(specificCurDef) <= chainActive.Height() &&
+         chainActive[std::get<0>(specificCurDef)]->GetBlockHash() != std::get<1>(specificCurDef)) ||
+        ((chainActive.Height() + 1) == std::get<0>(specificCurDef) &&
+          std::get<1>(specificCurDef) != uint256()) ||
+        (chainActive.Height() + 1) < std::get<0>(specificCurDef))
     {
-        return currencyDef;
+        int32_t defHeight;
+        if (!GetCurrencyDefinition(currencyID, currencyDef, &defHeight, true))
+        {
+            return CCurrencyDefinition();
+        }
+        uint256 blockHash = defHeight == 0 || defHeight > chainActive.Height() ? uint256() : chainActive[defHeight]->GetBlockHash();
+        currencyDefCache.Put(currencyID, {defHeight, blockHash, currencyDef});
     }
-    currencyDefCache.Put(currencyID, currencyDef);
     return currencyDef;
 }
 
@@ -7519,7 +7547,14 @@ CCurrencyDefinition CConnectedChains::UpdateCachedCurrency(const CCurrencyDefini
     // or script validation, where it is held either by this thread or one waiting for it.
     // in the long run, the daemon synchonrization model should be improved
     uint160 currencyID = currencyDef.GetID();
-    currencyDefCache.Put(currencyID, currencyDef);
+    if (!height || chainActive.Height() < height)
+    {
+        currencyDefCache.Put(currencyID, {height, uint256(), currencyDef});
+    }
+    else
+    {
+        currencyDefCache.Put(currencyID, {height, chainActive[height]->GetBlockHash(), currencyDef});
+    }
     if (currencyID == ASSETCHAINS_CHAINID)
     {
         ThisChain() = currencyDef;
@@ -9159,10 +9194,20 @@ bool CConnectedChains::CreateLatestImports(const CCurrencyDefinition &sourceSyst
             else
             {
                 printf("%s: success adding %s to mempool\n", __func__, newImportTx.GetHash().GetHex().c_str());
-                if (!arbitrageTransfersIn.size())
+
+                // do not relay imports unless they are from a different chain, as it will not depend on a
+                // local export transaction
+                if (cci.sourceSystemID != ASSETCHAINS_CHAINID)
                 {
                     RelayTransaction(newImportTx);
                 }
+                /* // or if we have added arbitrage transactions
+                else if (arbitrageTransfersIn.size())
+                {
+                    // before we relay an arbitraged import here, we should relay the associated export
+                    // for now, we won't do this, but to increase the chance that an arbitraged import will be picked up,
+                    // we may want to do so, so consider this a placeholder
+                } */
             }
 
             if (!mempool.mapTx.count(newImportTx.GetHash()))
@@ -11143,7 +11188,7 @@ void CConnectedChains::AggregateChainTransfers(const CTransferDestination &feeRe
                             std::list<CTransaction> removed;
                             mempool.removeConflicts(tx, removed);
 
-                            // add to mem pool, prioritize according to the fee we will get, and relay
+                            // add to mem pool, prioritize according to the fee we will get
                             //printf("Created and signed export transaction %s\n", tx.GetHash().GetHex().c_str());
                             //LogPrintf("Created and signed export transaction %s\n", tx.GetHash().GetHex().c_str());
                             CValidationState memPoolState;
