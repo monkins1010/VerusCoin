@@ -1979,6 +1979,31 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fInclud
     {
         switch(p.evalCode)
         {
+            case EVAL_NONE:
+            {
+                if (p.vData.size())
+                {
+                    COptCCParams masterForKeys;
+                    if (p.vData.size() && (masterForKeys = COptCCParams(p.vData.back())).IsValid())
+                    {
+                        for (const auto &oneKey : masterForKeys.vKeys)
+                        {
+                            if (oneKey.which() == COptCCParams::ADDRTYPE_INDEX)
+                            {
+                                out.push_back(Pair("vdxftag", EncodeDestination(oneKey)));
+                                break;  // display only one
+                            }
+                        }
+                    }
+                    out.push_back(Pair("evalnone", "valid"));
+                }
+                else
+                {
+                    out.push_back(Pair("evalnone", "invalid"));
+                }
+                break;
+            }
+
             case EVAL_CURRENCY_DEFINITION:
             {
                 CCurrencyDefinition definition;
@@ -2060,6 +2085,18 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fInclud
 
                 if (p.vData.size() && (rt = CReserveTransfer(p.vData[0])).IsValid())
                 {
+                    COptCCParams masterForKeys;
+                    if (p.vData.size() > 1 && (masterForKeys = COptCCParams(p.vData.back())).IsValid())
+                    {
+                        for (const auto &oneKey : masterForKeys.vKeys)
+                        {
+                            if (oneKey.which() == COptCCParams::ADDRTYPE_INDEX)
+                            {
+                                out.push_back(Pair("vdxftag", EncodeDestination(oneKey)));
+                                break;  // display only one
+                            }
+                        }
+                    }
                     out.push_back(Pair("reservetransfer", rt.ToUniValue()));
                 }
                 else
@@ -2075,6 +2112,18 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fInclud
 
                 if (p.vData.size() && (ro = CTokenOutput(p.vData[0])).IsValid())
                 {
+                    COptCCParams masterForKeys;
+                    if (p.vData.size() > 1 && (masterForKeys = COptCCParams(p.vData.back())).IsValid())
+                    {
+                        for (const auto &oneKey : masterForKeys.vKeys)
+                        {
+                            if (oneKey.which() == COptCCParams::ADDRTYPE_INDEX)
+                            {
+                                out.push_back(Pair("vdxftag", EncodeDestination(oneKey)));
+                                break;  // display only one
+                            }
+                        }
+                    }
                     out.push_back(Pair("reserveoutput", ro.ToUniValue()));
                 }
                 else
@@ -2254,7 +2303,10 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fInclud
 
         UniValue a(UniValue::VARR);
         for (const CTxDestination& addr : addresses) {
-            a.push_back(EncodeDestination(addr));
+            if (addr.which() != COptCCParams::ADDRTYPE_INDEX)
+            {
+                a.push_back(EncodeDestination(addr));
+            }
         }
         out.push_back(Pair("addresses", a));
     }
