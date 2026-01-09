@@ -75,6 +75,7 @@ using namespace std;
 
 extern void ThreadSendAlert();
 extern int32_t KOMODO_LOADINGBLOCKS;
+extern int32_t KOMODO_MININGTHREADS;
 extern bool VERUS_MINTBLOCKS;
 extern CTxDestination VERUS_DEFAULT_ARBADDRESS;
 extern std::vector<uint160> VERUS_ARBITRAGE_CURRENCIES;
@@ -559,7 +560,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-acceptfreeimportsfrom=<i-address>,<i-address>,...", _(" \"%s\" no spaces - accept underpaid imports from these PBaaS chains or networks - default is empty"));
     strUsage += HelpMessageOpt("-allowdelayednotarizations", strprintf(_("Do not notarize in order to prevent slower notarizations (default = %u, notarize to prevent slowing down)"), DEFAULT_SPENTINDEX));
     strUsage += HelpMessageOpt("-alwayssubmitnotarizations", strprintf(_("Submit notarizations to notary chain whenevever merge mining/staking and eligible (default = %u, only as needed)"), DEFAULT_SPENTINDEX));
-    strUsage += HelpMessageOpt("-approvecontractupgrade=<ETHcontracthash(0x...)>", strprintf(_("When validating blocks, vote to agree to upgrade to the specific contract. Default is no upgrade.")));
+    strUsage += HelpMessageOpt("-approvecontractupgrade=<0xf09...>", strprintf(_("When validating blocks, vote to agree to upgrade to the specific contract. Default is no upgrade.")));
     strUsage += HelpMessageOpt("-blocktime=<n>", strprintf(_("Set target block time (in seconds) for difficulty adjustment (default: %d)"), CCurrencyDefinition::DEFAULT_BLOCKTIME_TARGET));
     strUsage += HelpMessageOpt("-chain=pbaaschainname", _("loads either mainnet or resolves and loads a PBaaS chain if not vrsc or vrsctest"));
     strUsage += HelpMessageOpt("-miningdistributionpassthrough", _("uses the same miningdistribution values and addresses/IDs as Verus when merge mining"));
@@ -2350,11 +2351,10 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     VERUS_MINTBLOCKS = GetBoolArg("-mint", false);
     mapArgs["-gen"] = gen || VERUS_MINTBLOCKS ? "1" : "0";
     mapArgs["-genproclimit"] = itostr(GetArg("-genproclimit", gen ? -1 : 0));
-
-    if (pwalletMain || !GetArg("-mineraddress", "").empty())
-        GenerateBitcoins(gen || VERUS_MINTBLOCKS, pwalletMain, GetArg("-genproclimit", gen ? -1 : 0));
+    // Update KOMODO_MININGTHREADS here since komodo_args runs before config file is read
+    KOMODO_MININGTHREADS = GetArg("-genproclimit", gen ? -1 : 0);
  #else
-    GenerateBitcoins(gen, GetArg("-genproclimit", -1));
+    KOMODO_MININGTHREADS = GetArg("-genproclimit", gen ? -1 : 0);
  #endif
 #endif
 
@@ -2367,6 +2367,17 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     SetRPCWarmupFinished();
     uiInterface.InitMessage(_("Done loading"));
+
+#ifdef ENABLE_MINING
+    // Start mining after RPC is warmed up and node is fully initialized
+    // This prevents potential hangs from mining threads waiting for initialization
+ #ifdef ENABLE_WALLET
+    if (pwalletMain || !GetArg("-mineraddress", "").empty())
+        GenerateBitcoins(gen || VERUS_MINTBLOCKS, pwalletMain, KOMODO_MININGTHREADS);
+ #else
+    GenerateBitcoins(gen, KOMODO_MININGTHREADS);
+ #endif
+#endif
 
 #ifdef ENABLE_WALLET
     if (pwalletMain) {
