@@ -1762,7 +1762,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     if ( fReindex == 0 )
     {
-        bool checkval,fAddressIndex,fSpentIndex,fTimeStampIndex;
+        bool checkval = false, fAddressIndex, fSpentIndex, fTimeStampIndex;
         pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex, dbCompression, dbMaxOpenFiles);
 
         fAddressIndex = true;

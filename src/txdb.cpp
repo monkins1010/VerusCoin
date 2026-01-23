@@ -428,17 +428,21 @@ bool CBlockTreeDB::ReadAddressIndex(
 bool CBlockTreeDB::UpdateAddressReserveBalance(const std::vector<CAddressReserveBalanceEntry> &vect) {
     CDBBatch batch(*this);
     for (const auto &entry : vect) {
-        // Read existing balance if it exists
-        CAddressReserveBalanceValue existingValue;
-        if (Read(make_pair(DB_ADDRESSRESERVEBALANCE, entry.first), existingValue)) {
-            // Update existing balance
-            existingValue.balance += entry.second.balance;
-            existingValue.received += entry.second.received;
-            batch.Write(make_pair(DB_ADDRESSRESERVEBALANCE, entry.first), existingValue);
-        } else {
-            // Write new balance
-            batch.Write(make_pair(DB_ADDRESSRESERVEBALANCE, entry.first), entry.second);
+        // Always read existing balance first (initializes to 0 if not found)
+        CAddressReserveBalanceValue existingValue(0, 0);
+        Read(make_pair(DB_ADDRESSRESERVEBALANCE, entry.first), existingValue);
+        
+        // Update balance
+        existingValue.balance += entry.second.balance;
+        existingValue.received += entry.second.received;
+        
+        // Log warning if balance goes negative - indicates potential index corruption
+        if (existingValue.balance < 0) {
+            LogPrintf("WARNING: %s: Negative reserve balance detected for address type %u, currency %s: %ld\n",
+                     __func__, entry.first.type, entry.first.currencyID.GetHex(), existingValue.balance);
         }
+        
+        batch.Write(make_pair(DB_ADDRESSRESERVEBALANCE, entry.first), existingValue);
     }
     return WriteBatch(batch);
 }
