@@ -9843,16 +9843,28 @@ std::vector<uint256> CPBaaSNotarization::SubmitFinalizedNotarizations(const CRPC
     // to prevent funds loss, sort notaries and make sure we are in the top 2 before we try to submit
     if (amWitness)
     {
+        // Each notary gets a window of 4 blocks to submit their notarization.
+        // This prevents multiple notaries from submitting due to propagation delays on Ethereum.
+        // The window starts from when the notarization was confirmed on this chain, ensuring
+        // the first notary has a full window from the moment submission becomes possible.
+        static const uint32_t NOTARY_SUBMISSION_WINDOW_BLOCKS = 4;
+        uint32_t confirmedHeight = pfirstProofIdxIt->second->GetHeight();
+        uint32_t windowNumber = (nHeight >= confirmedHeight) ? 
+                                (nHeight - confirmedHeight) / NOTARY_SUBMISSION_WINDOW_BLOCKS : 0;
+        
         CNativeHashWriter hw;
-        hw << nHeight;
+        hw << confirmedHeight;
+        hw << windowNumber;
         uint256 prHash = hw.GetHash();
         std::vector<uint160> notaryVec = externalSystem.chainDefinition.notaries;
         auto prandom = std::minstd_rand0(UintToArith256(prHash).GetLow64());
         shuffle(notaryVec.begin(), notaryVec.end(), prandom);
         if (notaryVec[0] != VERUS_NOTARYID)
         {
-            LogPrintf("skipping notarization submission - was not selected for submission lottery (%s selected)\n", EncodeDestination(CIdentityID(notaryVec[0])).c_str());
-            printf("skipping notarization submission - was not selected for submission lottery (%s selected)\n", EncodeDestination(CIdentityID(notaryVec[0])).c_str());
+            LogPrintf("skipping notarization submission - was not selected for submission lottery (%s selected, window %u from confirmed height %u)\n", 
+                      EncodeDestination(CIdentityID(notaryVec[0])).c_str(), windowNumber, confirmedHeight);
+            printf("skipping notarization submission - was not selected for submission lottery (%s selected, window %u from confirmed height %u)\n", 
+                   EncodeDestination(CIdentityID(notaryVec[0])).c_str(), windowNumber, confirmedHeight);
             return retVal;
         }
     }
