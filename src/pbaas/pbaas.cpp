@@ -1581,6 +1581,11 @@ bool PrecheckCrossChainExport(const CTransaction &tx, int32_t outNum, CValidatio
 
         // ensure we use the correct condition
         // and that there is no risk of missing valid transfers with the check we end up with here
+        if (LogAcceptCategory("mevattack"))
+        {
+            printf("Getting chain transfers for %s, start: %u, end: %u, height: %u\n", ConnectedChains.GetFriendlyCurrencyName(ccx.destCurrencyID).c_str(),
+                    ccx.sourceHeightStart, ccx.sourceHeightEnd, height);
+        }
         if (ccx.sourceHeightStart > 0 &&
             (!GetChainTransfersUnspentBy(inputDescriptors, ccx.destCurrencyID, ccx.sourceHeightStart, ccx.sourceHeightEnd, height, tx.GetHash()) ||
              !GetChainTransfersBetween(inputDescriptors, ccx.destCurrencyID, ccx.sourceHeightEnd + 1, std::min(height, ccx.sourceHeightEnd + 2))))
@@ -1649,10 +1654,12 @@ bool PrecheckCrossChainExport(const CTransaction &tx, int32_t outNum, CValidatio
         {
             if (LogAcceptCategory("crosschainexports") || LogAcceptCategory("mevattack"))
             {
-                printf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld\n",
-                       __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size());
-                LogPrintf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld\n",
-                       __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size());
+                printf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld, _txInputs.size(): %ld\n",
+                       __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size(), _txInputs.size());
+                printf("start: %u, end: %u, chainActive.Height(): %u, unpentBy: %u\n", ccx.sourceHeightStart, ccx.sourceHeightEnd, chainActive.Height(), height);
+                LogPrintf("%s: mismatch transfer sizes: ccx.reserveTransfers.size(): %ld, reserveTransfers.size(): %ld, txInputVec.size(): %ld, _txInputs.size(): %ld\n",
+                       __func__, ccx.reserveTransfers.size(), reserveTransfers.size(), txInputVec.size(), _txInputs.size());
+                LogPrintf("start: %u, end: %u, chainActive.Height(): %u, unpentBy: %u\n", ccx.sourceHeightStart, ccx.sourceHeightEnd, chainActive.Height(), height);
                 printf("height: %u, currencyname: %s, ccx: %s\n", height, thisDef.name.c_str(), ccx.ToUniValue().write(1,2).c_str());
                 LogPrintf("height: %u, currencyname: %s, ccx: %s\n", height, thisDef.name.c_str(), ccx.ToUniValue().write(1,2).c_str());
                 printf("firsinput: %s\n", CUTXORef(tx.vin[0].prevout).ToUniValue().write().c_str());
@@ -4928,7 +4935,7 @@ bool PrecheckReserveTransfer(const CTransaction &tx, int32_t outNum, CValidation
         {
             LogPrintf("%s: DeFi functions temporarily disabled for security alert by notification oracle %s\n", PBAAS_DEFAULT_NOTIFICATION_ORACLE.c_str());
         }
-        return state.Error("DeFi functions temporarily disabled for security alert by notification oracle. Reserve transfer rejected " + rt.ToUniValue().write(1,2));
+        return state.Error("DeFi functions temporarily disabled for security alert by notification oracle. Reserve transfer rejected.");
     }
 
     if (tx.vout[outNum].scriptPubKey.IsPayToCryptoCondition(p) &&
@@ -5153,6 +5160,13 @@ bool PrecheckReserveTransfer(const CTransaction &tx, int32_t outNum, CValidation
             {
                 return state.Error("Preconversion transfers must use the native fee currency of the launching system " + rt.ToUniValue().write(1,2));
             }
+        }
+        else if (ConnectedChains.CheckStrictPreconvert(height) &&
+                 rt.IsPreConversion())
+        {
+            return state.Error("Preconversion is only valid during pre-launch phase - currency " +
+                                    ConnectedChains.GetFriendlyCurrencyName(importState.currencyID) +
+                                    " is no longer in pre-launch.");
         }
         else if (haveFullChain &&
                  ConnectedChains.CheckZeroViaOnlyPostLaunch(height) &&
@@ -6632,6 +6646,11 @@ uint32_t CConnectedChains::GetOptimizedETHProofHeight(bool getVerusHeight) const
     return (getVerusHeight || _IsVerusActive() && !PBAAS_TESTMODE) ? PBAAS_OPTIMIZE_ETH_HEIGHT : 0;
 }
 
+uint32_t CConnectedChains::GetStrictPreconvertHeight(bool getVerusHeight) const
+{
+    return (getVerusHeight || IsVerusActive()) && !PBAAS_TESTMODE ? PBAAS_STRICT_PRECONVERT_HEIGHT : 0;
+}
+
 bool CConnectedChains::ShouldOptimizeETHProof() const
 {
     return chainActive.Height() >= GetOptimizedETHProofHeight();
@@ -6640,6 +6659,11 @@ bool CConnectedChains::ShouldOptimizeETHProof() const
 bool CConnectedChains::CheckZeroViaOnlyPostLaunch(uint32_t height) const
 {
     return height > GetZeroViaHeight(false);
+}
+
+bool CConnectedChains::CheckStrictPreconvert(uint32_t height) const
+{
+    return height > GetStrictPreconvertHeight(false);
 }
 
 uint32_t CConnectedChains::IncludePostLaunchFeeHeight(bool getVerusHeight) const
